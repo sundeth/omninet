@@ -55,9 +55,14 @@ Copy these files from the `deploy/` folder to your Unraid server:
 ```bash
 scp deploy/docker-compose.deploy.yml  root@<UNRAID_IP>:/mnt/user/appdata/omninet/
 scp deploy/init-multi-db.sh           root@<UNRAID_IP>:/mnt/user/appdata/omninet/
+scp deploy/.env.example               root@<UNRAID_IP>:/mnt/user/appdata/omninet/.env
 scp deploy/.env.staging.example       root@<UNRAID_IP>:/mnt/user/appdata/omninet/.env.staging
 scp deploy/.env.production.example    root@<UNRAID_IP>:/mnt/user/appdata/omninet/.env.production
 ```
+
+> **Two separate env files:**
+> - `.env` — read by `docker compose` itself for infrastructure variables (`DB_PASSWORD`)
+> - `.env.staging` / `.env.production` — read by the app containers at runtime
 
 ### 3. Configure environment files on Unraid
 
@@ -65,15 +70,18 @@ scp deploy/.env.production.example    root@<UNRAID_IP>:/mnt/user/appdata/omninet
 ssh root@<UNRAID_IP>
 cd /mnt/user/appdata/omninet
 
-# Edit and set real passwords/secrets
+# Set the postgres container password (used by docker compose for the postgres container)
+nano .env
+
+# Set app-level secrets
 nano .env.staging
 nano .env.production
 ```
 
 **Critical: Change these values:**
-- `DB_PASSWORD` — set in both `.env` files and matches the `DATABASE_URL` password
-- `SECRET_KEY` — generate with `openssl rand -hex 32`
-- SMTP credentials (production)
+- `.env` → `DB_PASSWORD` — the postgres container password. Must match the password in `DATABASE_URL` in both app env files.
+- `.env.staging` / `.env.production` → `SECRET_KEY` — generate with `openssl rand -hex 32`
+- `.env.production` → SMTP credentials
 
 ### 4. Start PostgreSQL
 

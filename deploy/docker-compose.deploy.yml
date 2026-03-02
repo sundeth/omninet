@@ -23,8 +23,8 @@ services:
     container_name: omninet-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DB_USER:-omninet}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
       POSTGRES_DB: omnipet_prd
     volumes:
       - postgres-data:/var/lib/postgresql/data
@@ -34,7 +34,7 @@ services:
     ports:
       - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-omninet}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
