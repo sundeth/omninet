@@ -1,0 +1,35 @@
+# Git
+.git/
+.gitignore
+
+# Storage (volume-mounted at runtime)
+storage/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Deploy configs (not part of app image)
+deploy/
+
+# CI/CD
+.github/
+
+# Documentation
+*.md
+LICENSE*

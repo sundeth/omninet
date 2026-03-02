@@ -92,7 +92,46 @@ docker compose -f docker-compose.deploy.yml up -d postgres
 
 This creates both `omnipet_prd` (default) and `omnipet_dev` (via init script) databases.
 
-### 5. Generate an SSH key for GitHub Actions
+> **If the init script didn't run** (volume already existed), create `omnipet_dev` manually:
+> ```bash
+> docker exec omninet-postgres psql -U postgres -c "CREATE DATABASE omnipet_dev OWNER postgres;"
+> ```
+
+### 5. Seed storage data (shop sync)
+
+The app's shop sync service reads JSON files + images from `/app/storage` (which is a Docker volume).
+These files are **not** built into the Docker image — you must copy them manually on first deploy.
+
+Find the volume mount point:
+```bash
+# For staging
+docker volume inspect omninet_staging-storage --format '{{ .Mountpoint }}'
+
+# For production
+docker volume inspect omninet_production-storage --format '{{ .Mountpoint }}'
+```
+
+Copy the seed files from your local `storage/` directory:
+```bash
+# Replace <VOLUME_MOUNT> with the actual path from above
+# Required subdirectories: backgrounds/, items/, gameplay/
+scp -r storage/backgrounds/ root@<UNRAID_IP>:<VOLUME_MOUNT>/backgrounds/
+scp -r storage/items/       root@<UNRAID_IP>:<VOLUME_MOUNT>/items/
+scp -r storage/gameplay/    root@<UNRAID_IP>:<VOLUME_MOUNT>/gameplay/
+```
+
+**What each directory contains:**
+| Directory      | Contents                                         |
+|----------------|--------------------------------------------------|
+| `backgrounds/` | Background PNGs + `backgrounds.json` (shop data) |
+| `items/`       | Item icon PNGs + `items.json` (shop data)         |
+| `gameplay/`    | `gameplay.json` (shop data)                       |
+| `modules/`     | Created automatically (user-uploaded modules)     |
+| `logs/`        | Created automatically (app logs)                  |
+
+> If the JSON files are missing, the shop sync service will skip seeding (no error) and the shop will be empty until the files are placed.
+
+### 6. Generate an SSH key for GitHub Actions
 
 On your local machine:
 
@@ -106,7 +145,7 @@ Copy the **public** key to Unraid:
 ssh-copy-id -i omninet-deploy.pub root@<UNRAID_IP>
 ```
 
-### 6. Configure GitHub Secrets
+### 7. Configure GitHub Secrets
 
 Go to **GitHub → Repository Settings → Secrets and variables → Actions** and add:
 
@@ -121,14 +160,14 @@ Go to **GitHub → Repository Settings → Secrets and variables → Actions** a
 > *The `GHCR_PAT` is needed for the Unraid server to pull images from ghcr.io.
 > Create one at https://github.com/settings/tokens with `read:packages` scope.
 
-### 7. Configure Cloudflare Tunnel
+### 8. Configure Cloudflare Tunnel
 
 In your Cloudflare Zero Trust dashboard, add two public hostname rules to your existing tunnel:
 
 1. **Production:** `omnipet.app.br` → `http://localhost:8001`
 2. **Staging:** `omnipet.app.br` with path `/dev/*` → `http://localhost:8000`
 
-### 8. First deploy
+### 9. First deploy
 
 Push to the `develop` branch — GitHub Actions will build, push, and deploy automatically.
 

@@ -110,6 +110,12 @@ jobs:
             echo "Waiting for postgres to be healthy..."
             sleep 5
 
+            # Ensure both databases exist (init script only runs on first volume init)
+            docker exec omninet-postgres psql -U "${DB_USER:-postgres}" -tc \
+              "SELECT 1 FROM pg_database WHERE datname = 'omnipet_dev'" | grep -q 1 || \
+              docker exec omninet-postgres psql -U "${DB_USER:-postgres}" -c \
+              "CREATE DATABASE omnipet_dev OWNER ${DB_USER:-postgres};"
+
             # Run migrations
             echo "Running Alembic migrations for ${{ steps.env.outputs.env_name }}..."
             docker run --rm \

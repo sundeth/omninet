@@ -1,7 +1,7 @@
 # Omninet Dockerfile
 # Multi-stage build for Python FastAPI application
 
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 # Set working directory
 WORKDIR /app
@@ -37,10 +37,11 @@ ENV PATH=/home/omninet/.local/bin:$PATH
 COPY omninet/ ./omninet/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
-COPY storage/ ./storage/
 
-# Create storage directories
+# Create storage directories (contents are volume-mounted, not baked into image)
 RUN mkdir -p /app/storage/modules /app/storage/logs \
+             /app/storage/backgrounds /app/storage/items \
+             /app/storage/gameplay \
     && chown -R omninet:omninet /app
 
 # Switch to non-root user
