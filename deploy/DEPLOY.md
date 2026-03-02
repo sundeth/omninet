@@ -22,12 +22,12 @@ GitHub Actions (on push to develop/main)
 
 **Infrastructure on Unraid:**
 
-| Service         | Container             | Port  | Notes                            |
-|-----------------|-----------------------|-------|----------------------------------|
-| PostgreSQL      | `omninet-postgres`    | 5433  | Dedicated instance (not shared)  |
-| Staging API     | `omninet-server-dev`  | 8000  | Cloudflare tunnel → `/dev/*`     |
-| Production API  | `omninet-server-prd`  | 8001  | Cloudflare tunnel → `/`          |
-| SSH             | (host)                | 22    | For GitHub Actions deploys       |
+| Service         | Container             | Port  | Notes                                     |
+|-----------------|-----------------------|-------|-------------------------------------------|
+| PostgreSQL      | `omninet-postgres`    | 5433  | Dedicated instance (not shared)           |
+| Staging API     | `omninet-server-dev`  | 8000  | Cloudflare tunnel → `/dev/*`              |
+| Production API  | `omninet-server-prd`  | 8001  | Cloudflare tunnel → `/`                   |
+| SSH             | (host)                | —     | Cloudflare Tunnel → `ssh.omnipet.app.br`  |
 
 **Cloudflare Tunnel configuration:**
 
@@ -145,20 +145,26 @@ Copy the **public** key to Unraid:
 ssh-copy-id -i omninet-deploy.pub root@<UNRAID_IP>
 ```
 
+> No SSH port needs to be open to the internet — connections are routed through
+> the Cloudflare Tunnel at `ssh.omnipet.app.br`.
+
 ### 7. Configure GitHub Secrets
 
 Go to **GitHub → Repository Settings → Secrets and variables → Actions** and add:
 
-| Secret           | Value                                         |
-|------------------|-----------------------------------------------|
-| `UNRAID_HOST`    | Your Unraid IP or hostname                    |
-| `UNRAID_USER`    | `root` (or your SSH user)                     |
-| `UNRAID_SSH_KEY` | Contents of `omninet-deploy` private key file |
-| `UNRAID_SSH_PORT`| `22` (or your custom SSH port)                |
-| `GHCR_PAT`      | GitHub PAT with `read:packages` scope*        |
+| Secret           | Value                                               |
+|------------------|-----------------------------------------------------|
+| `UNRAID_HOST`    | `ssh.omnipet.app.br` (Cloudflare Tunnel SSH domain) |
+| `UNRAID_USER`    | `root` (or your SSH user)                           |
+| `UNRAID_SSH_KEY` | Contents of `omninet-deploy` private key file       |
+| `GHCR_PAT`      | GitHub PAT with `read:packages` scope*             |
 
 > *The `GHCR_PAT` is needed for the Unraid server to pull images from ghcr.io.
 > Create one at https://github.com/settings/tokens with `read:packages` scope.
+
+> **Cloudflare Tunnel SSH:** The workflow installs `cloudflared` on the GitHub Actions runner
+> and uses it as a ProxyCommand, so no open port is needed on your server. The Cloudflare
+> Tunnel at `ssh.omnipet.app.br` forwards the connection to your Unraid host transparently.
 
 ### 8. Configure Cloudflare Tunnel
 

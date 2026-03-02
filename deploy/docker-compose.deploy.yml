@@ -49,7 +49,7 @@ services:
       - ENVIRONMENT=dev
       - ROOT_PATH=/dev
     volumes:
-      - staging-storage:/app/storage
+      - ./dev:/app/storage
     networks:
       - omninet-network
     ports:
@@ -69,7 +69,7 @@ services:
     environment:
       - ENVIRONMENT=prd
     volumes:
-      - production-storage:/app/storage
+      - ./prd:/app/storage
     networks:
       - omninet-network
     ports:
@@ -86,5 +86,3 @@ networks:
 
 volumes:
   postgres-data:
-  staging-storage:
-  production-storage:

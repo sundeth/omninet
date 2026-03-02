@@ -78,13 +78,19 @@ jobs:
             echo "service=omninet-dev" >> $GITHUB_OUTPUT
           fi
 
+      - name: Install cloudflared
+        run: |
+          curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloudflare-main.gpg
+          echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
+          sudo apt-get update && sudo apt-get install -y cloudflared
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.UNRAID_HOST }}
           username: ${{ secrets.UNRAID_USER }}
           key: ${{ secrets.UNRAID_SSH_KEY }}
-          port: ${{ secrets.UNRAID_SSH_PORT || 22 }}
+          proxy_command: cloudflared access ssh --hostname %h
           script: |
             set -e
 
@@ -111,10 +117,12 @@ jobs:
             sleep 5
 
             # Ensure both databases exist (init script only runs on first volume init)
-            docker exec omninet-postgres psql -U "${DB_USER:-postgres}" -tc \
+            DB_USER=$(grep '^DB_USER=' "$DEPLOY_DIR/.env" | cut -d= -f2)
+            DB_USER=${DB_USER:-postgres}
+            docker exec omninet-postgres psql -U "$DB_USER" -tc \
               "SELECT 1 FROM pg_database WHERE datname = 'omnipet_dev'" | grep -q 1 || \
-              docker exec omninet-postgres psql -U "${DB_USER:-postgres}" -c \
-              "CREATE DATABASE omnipet_dev OWNER ${DB_USER:-postgres};"
+              docker exec omninet-postgres psql -U "$DB_USER" -c \
+              "CREATE DATABASE omnipet_dev OWNER $DB_USER;"
 
             # Run migrations
             echo "Running Alembic migrations for ${{ steps.env.outputs.env_name }}..."
