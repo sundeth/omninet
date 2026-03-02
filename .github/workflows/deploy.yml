@@ -1,4 +1,4 @@
-name: Build & Deploy to Unraid
+name: Build & Push
 
 on:
   push:
@@ -29,8 +29,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    outputs:
-      image_tag: ${{ steps.meta.outputs.tags }}
     steps:
       - uses: actions/checkout@v4
 
@@ -57,88 +55,3 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
-  deploy:
-    name: Deploy to Unraid
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Determine environment
-        id: env
-        run: |
-          if [[ "${{ github.ref_name }}" == "main" ]]; then
-            echo "env_name=production" >> $GITHUB_OUTPUT
-            echo "compose_profile=production" >> $GITHUB_OUTPUT
-            echo "service=omninet-prd" >> $GITHUB_OUTPUT
-          else
-            echo "env_name=staging" >> $GITHUB_OUTPUT
-            echo "compose_profile=staging" >> $GITHUB_OUTPUT
-            echo "service=omninet-dev" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Install cloudflared
-        run: |
-          curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloudflare-main.gpg
-          echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
-          sudo apt-get update && sudo apt-get install -y cloudflared
-
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.UNRAID_HOST }}
-          username: ${{ secrets.UNRAID_USER }}
-          key: ${{ secrets.UNRAID_SSH_KEY }}
-          proxy_command: cloudflared access ssh --hostname %h
-          script: |
-            set -e
-
-            DEPLOY_DIR="/mnt/user/appdata/omninet"
-            IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
-
-            # Ensure deploy directory exists
-            mkdir -p "$DEPLOY_DIR"
-
-            # Copy compose and env files if they don't exist
-            # (first deploy — you'll need to manually place .env on the server)
-
-            # Log in to GHCR
-            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-            # Pull latest image
-            docker pull "$IMAGE"
-
-            cd "$DEPLOY_DIR"
-
-            # Ensure postgres is running (creates network + volume on first deploy)
-            docker compose -f docker-compose.deploy.yml up -d postgres
-            echo "Waiting for postgres to be healthy..."
-            sleep 5
-
-            # Ensure both databases exist (init script only runs on first volume init)
-            DB_USER=$(grep '^DB_USER=' "$DEPLOY_DIR/.env" | cut -d= -f2)
-            DB_USER=${DB_USER:-postgres}
-            docker exec omninet-postgres psql -U "$DB_USER" -tc \
-              "SELECT 1 FROM pg_database WHERE datname = 'omnipet_dev'" | grep -q 1 || \
-              docker exec omninet-postgres psql -U "$DB_USER" -c \
-              "CREATE DATABASE omnipet_dev OWNER $DB_USER;"
-
-            # Run migrations
-            echo "Running Alembic migrations for ${{ steps.env.outputs.env_name }}..."
-            docker run --rm \
-              --network omninet_omninet-network \
-              --env-file "$DEPLOY_DIR/.env.${{ steps.env.outputs.env_name }}" \
-              "$IMAGE" \
-              python -m alembic upgrade head
-
-            # Restart the service
-            echo "Restarting ${{ steps.env.outputs.service }}..."
-            docker compose -f docker-compose.deploy.yml \
-              --profile ${{ steps.env.outputs.compose_profile }} \
-              up -d --no-deps --force-recreate ${{ steps.env.outputs.service }}
-
-            # Cleanup old images
-            docker image prune -f
-
-            echo "Deploy complete: ${{ steps.env.outputs.env_name }} (${{ github.sha }})"

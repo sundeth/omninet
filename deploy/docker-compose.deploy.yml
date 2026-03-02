@@ -8,7 +8,6 @@
 #   PostgreSQL : 5433 (separate from any existing postgres on 5432)
 #   Staging    : 8000  (omnipet.app.br/dev via Cloudflare tunnel)
 #   Production : 8001  (omnipet.app.br via Cloudflare tunnel)
-#   SSH        : 22    (for GitHub Actions deploy)
 #
 # Usage:
 #   Staging:    docker compose -f docker-compose.deploy.yml --profile staging up -d
@@ -39,6 +38,21 @@ services:
       timeout: 5s
       retries: 5
 
+  # ---- Watchtower (auto-updates containers when new images are pushed) -------
+  watchtower:
+    image: containrrr/watchtower
+    container_name: omninet-watchtower
+    restart: unless-stopped
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=60
+      - WATCHTOWER_SCOPE=omninet
+      - WATCHTOWER_ROLLING_RESTART=true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      - "com.centurylinklabs.watchtower.scope=omninet"
+
   # ---- Staging (develop branch) → port 8000 ---------------------------------
   omninet-dev:
     image: ghcr.io/sundeth/omninet:develop
@@ -57,6 +71,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    labels:
+      - "com.centurylinklabs.watchtower.scope=omninet"
     profiles:
       - staging
 
@@ -77,6 +93,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    labels:
+      - "com.centurylinklabs.watchtower.scope=omninet"
     profiles:
       - production
 

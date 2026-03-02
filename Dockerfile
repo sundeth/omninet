@@ -37,11 +37,13 @@ ENV PATH=/home/omninet/.local/bin:$PATH
 COPY omninet/ ./omninet/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
+COPY entrypoint.sh .
 
 # Create storage directories (contents are volume-mounted, not baked into image)
 RUN mkdir -p /app/storage/modules /app/storage/logs \
              /app/storage/backgrounds /app/storage/items \
              /app/storage/gameplay \
+    && chmod +x /app/entrypoint.sh \
     && chown -R omninet:omninet /app
 
 # Switch to non-root user
@@ -55,8 +57,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 EXPOSE 8000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-# Run application
-CMD ["python", "-m", "uvicorn", "omninet.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run application (entrypoint runs migrations then starts uvicorn)
+ENTRYPOINT ["./entrypoint.sh"]
