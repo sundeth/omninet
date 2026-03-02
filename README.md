@@ -241,6 +241,46 @@ omninet/
     └── admin.py
 ```
 
+## CI/CD Automation
+
+The repository includes two GitHub Actions workflows:
+
+### CI (`ci.yml`)
+Runs on every push and pull request to `main` or `develop`:
+- **Lint**: checks code style with `ruff`
+- **Build**: validates the Docker image builds successfully
+
+### Deploy (`deploy.yml`)
+Automatically deploys to your personal server via SSH on push to:
+- `develop` → rebuilds and restarts **`omninet-dev`** (port **8000**)
+- `main` → rebuilds and restarts **`omninet-prd`** (port **8001**)
+
+### Server Setup
+
+1. Install **Docker** and **Docker Compose** on your server.
+2. Clone this repository to the server (e.g. `/opt/omninet`).
+3. Copy `.env.example` to `.env` and fill in your production values.
+4. Start the infrastructure services once:
+   ```bash
+   docker compose up -d postgres redis
+   ```
+
+### Required GitHub Secrets
+
+Configure the following secrets in your repository settings
+(**Settings → Secrets and variables → Actions**):
+
+| Secret | Description |
+|--------|-------------|
+| `SERVER_HOST` | Server IP address or hostname |
+| `SERVER_USER` | SSH username on the server |
+| `SERVER_SSH_KEY` | SSH private key for authentication |
+| `SERVER_APP_PATH` | Absolute path to the cloned repository on the server (e.g. `/opt/omninet`) |
+
+You can also create **develop** and **production** GitHub Environments
+(**Settings → Environments**) to add required reviewers or environment-specific
+secrets for extra protection.
+
 ## Contributing
 
 1. Fork the repository
