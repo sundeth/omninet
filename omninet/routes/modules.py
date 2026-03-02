@@ -1,27 +1,25 @@
 """
 Module management routes.
 """
-from typing import Optional
+from io import BytesIO
 from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
-from io import BytesIO
 
 from omninet.models.module import ModuleStatus
-from omninet.routes.deps import DbSession, CurrentUser, OptionalUser
+from omninet.routes.deps import CurrentUser, DbSession
+from omninet.schemas.common import MessageResponse, PaginatedResponse
 from omninet.schemas.module import (
-    ModuleCreate,
-    ModuleResponse,
-    ModuleListResponse,
-    ModulePublishRequest,
-    ModulePublishResponse,
     CategoryResponse,
     ContributorRequest,
     ContributorResponse,
     ModuleContributorsResponse,
+    ModuleListResponse,
+    ModulePublishRequest,
+    ModulePublishResponse,
+    ModuleResponse,
 )
-from omninet.schemas.common import MessageResponse, PaginatedResponse
 from omninet.services.module import ModuleService
 
 router = APIRouter(prefix="/modules", tags=["Modules"])
@@ -49,8 +47,8 @@ async def list_categories(
 @router.get("", response_model=PaginatedResponse[ModuleListResponse])
 async def list_modules(
     db: DbSession,
-    category_id: Optional[UUID] = None,
-    search: Optional[str] = None,
+    category_id: UUID | None = None,
+    search: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):

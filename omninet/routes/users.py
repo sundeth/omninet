@@ -1,16 +1,15 @@
 """
 User management routes.
 """
-from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from omninet.routes.deps import DbSession, CurrentUser, AdminUser
-from omninet.schemas.user import UserResponse, UserUpdate, DeviceResponse
+from omninet.routes.deps import CurrentUser, DbSession
 from omninet.schemas.common import MessageResponse
-from omninet.services.user import UserService
+from omninet.schemas.user import DeviceResponse, UserResponse, UserUpdate
 from omninet.services.device import DeviceService
+from omninet.services.user import UserService
 
 router = APIRouter(prefix="/users", tags=["Users"])
 

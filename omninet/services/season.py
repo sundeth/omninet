@@ -1,14 +1,13 @@
 """
 Season service for managing battle seasons.
 """
-from datetime import date, datetime, timezone
-from typing import Optional
+from datetime import date, timedelta
 from uuid import UUID
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from omninet.models.battle import Season, SeasonStatus, GamePet
+from omninet.models.battle import GamePet, Season, SeasonStatus
 from omninet.models.logs import ActivityType
 from omninet.services.logging import LoggingService
 
@@ -20,13 +19,13 @@ class SeasonService:
         self.db = db
         self.logging_service = LoggingService(db)
 
-    async def get_by_id(self, season_id: UUID) -> Optional[Season]:
+    async def get_by_id(self, season_id: UUID) -> Season | None:
         """Get season by ID."""
         query = select(Season).where(Season.id == season_id)
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
-    async def get_current_season(self) -> Optional[Season]:
+    async def get_current_season(self) -> Season | None:
         """Get the currently active season."""
         today = date.today()
         query = (
@@ -44,7 +43,7 @@ class SeasonService:
         Weekly seasons run from Sunday to Saturday.
         """
         today = date.today()
-        
+
         # Find start of current week (Sunday)
         days_since_sunday = today.weekday() + 1
         if days_since_sunday == 7:
@@ -91,11 +90,11 @@ class SeasonService:
         name: str,
         start_date: date,
         end_date: date,
-        description: Optional[str] = None,
-        restrictions: Optional[dict] = None,
+        description: str | None = None,
+        restrictions: dict | None = None,
         reward_multiplier: float = 1.0,
-        theme_name: Optional[str] = None,
-        banner_url: Optional[str] = None,
+        theme_name: str | None = None,
+        banner_url: str | None = None,
     ) -> Season:
         """Create a new season."""
         # Determine initial status
@@ -172,7 +171,7 @@ class SeasonService:
 
     async def list_seasons(
         self,
-        status: Optional[SeasonStatus] = None,
+        status: SeasonStatus | None = None,
         limit: int = 20,
     ) -> list[Season]:
         """List seasons with optional status filter."""
@@ -206,7 +205,3 @@ class SeasonService:
                 return False
 
         return True
-
-
-# Need to import timedelta
-from datetime import timedelta

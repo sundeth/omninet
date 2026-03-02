@@ -40,7 +40,13 @@ class Settings(BaseSettings):
     smtp_from_name: str = "Omnipet"
 
     # Redis
-    redis_url: str = "redis://localhost:6379/0"
+    # redis_url: str = "redis://localhost:6379/0"  # Not used - cache is in-memory
+
+    # Root path (for reverse proxy subpath routing, e.g. "/dev")
+    root_path: str = ""
+
+    # Allowed origins for CORS
+    cors_origins: str = ""  # Comma-separated, e.g. "https://omnipet.app.br,http://localhost:8000"
 
     # File Storage
     modules_storage_path: str = "./storage/modules"
@@ -53,6 +59,13 @@ class Settings(BaseSettings):
     # Verification
     verification_code_expiry_minutes: int = 5
     pairing_code_expiry_minutes: int = 5
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        """Get parsed CORS origins list."""
+        if self.cors_origins:
+            return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        return []
 
     @property
     def db_url(self) -> str:

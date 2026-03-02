@@ -4,26 +4,25 @@ Shop service for handling shop items, purchases, and downloads.
 import base64
 import uuid
 from pathlib import Path
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from omninet.config import settings
 from omninet.models import (
-    User,
-    UserDevice,
+    CosmeticType,
     GameModule,
+    ModuleStatus,
+    PurchaseType,
     ShopCosmetic,
     ShopGameplay,
     ShopItem,
     ShopSpecial,
+    User,
+    UserDevice,
     UserPurchase,
-    PurchaseType,
-    CosmeticType,
-    ModuleStatus,
 )
-from omninet.config import settings
 
 
 class ShopService:
@@ -40,7 +39,7 @@ class ShopService:
         """List all enabled cosmetics."""
         result = await self.db.execute(
             select(ShopCosmetic)
-            .where(ShopCosmetic.enabled == True)
+            .where(ShopCosmetic.enabled.is_(True))
             .order_by(ShopCosmetic.name)
         )
         return list(result.scalars().all())
@@ -49,7 +48,7 @@ class ShopService:
         """List all enabled gameplay items."""
         result = await self.db.execute(
             select(ShopGameplay)
-            .where(ShopGameplay.enabled == True)
+            .where(ShopGameplay.enabled.is_(True))
             .order_by(ShopGameplay.name)
         )
         return list(result.scalars().all())
@@ -58,7 +57,7 @@ class ShopService:
         """List all enabled items."""
         result = await self.db.execute(
             select(ShopItem)
-            .where(ShopItem.enabled == True)
+            .where(ShopItem.enabled.is_(True))
             .order_by(ShopItem.name)
         )
         return list(result.scalars().all())
@@ -67,24 +66,24 @@ class ShopService:
         """List all enabled specials."""
         result = await self.db.execute(
             select(ShopSpecial)
-            .where(ShopSpecial.enabled == True)
+            .where(ShopSpecial.enabled.is_(True))
             .order_by(ShopSpecial.name)
         )
         return list(result.scalars().all())
 
-    async def list_modules(self, category: Optional[str] = None) -> list[GameModule]:
+    async def list_modules(self, category: str | None = None) -> list[GameModule]:
         """List all published modules, optionally filtered by category."""
         query = (
             select(GameModule)
             .options(selectinload(GameModule.owner), selectinload(GameModule.category))
             .where(GameModule.status == ModuleStatus.PUBLISHED)
         )
-        
+
         if category:
             query = query.join(GameModule.category).where(
                 GameModule.category.has(name=category)
             )
-        
+
         query = query.order_by(GameModule.name)
         result = await self.db.execute(query)
         return list(result.scalars().all())
@@ -93,35 +92,35 @@ class ShopService:
     # Get item methods
     # ========================================================================
 
-    async def get_cosmetic(self, item_id: uuid.UUID) -> Optional[ShopCosmetic]:
+    async def get_cosmetic(self, item_id: uuid.UUID) -> ShopCosmetic | None:
         """Get a cosmetic by ID."""
         result = await self.db.execute(
             select(ShopCosmetic).where(ShopCosmetic.id == item_id)
         )
         return result.scalar_one_or_none()
 
-    async def get_gameplay(self, item_id: uuid.UUID) -> Optional[ShopGameplay]:
+    async def get_gameplay(self, item_id: uuid.UUID) -> ShopGameplay | None:
         """Get a gameplay item by ID."""
         result = await self.db.execute(
             select(ShopGameplay).where(ShopGameplay.id == item_id)
         )
         return result.scalar_one_or_none()
 
-    async def get_item(self, item_id: uuid.UUID) -> Optional[ShopItem]:
+    async def get_item(self, item_id: uuid.UUID) -> ShopItem | None:
         """Get an item by ID."""
         result = await self.db.execute(
             select(ShopItem).where(ShopItem.id == item_id)
         )
         return result.scalar_one_or_none()
 
-    async def get_special(self, item_id: uuid.UUID) -> Optional[ShopSpecial]:
+    async def get_special(self, item_id: uuid.UUID) -> ShopSpecial | None:
         """Get a special by ID."""
         result = await self.db.execute(
             select(ShopSpecial).where(ShopSpecial.id == item_id)
         )
         return result.scalar_one_or_none()
 
-    async def get_module(self, item_id: uuid.UUID) -> Optional[GameModule]:
+    async def get_module(self, item_id: uuid.UUID) -> GameModule | None:
         """Get a module by ID."""
         result = await self.db.execute(
             select(GameModule).where(GameModule.id == item_id)
@@ -145,12 +144,12 @@ class ShopService:
         )
         return result.scalar_one_or_none() is not None
 
-    async def get_user_by_device_key(self, device_key: str) -> Optional[User]:
+    async def get_user_by_device_key(self, device_key: str) -> User | None:
         """Get user by device secret key."""
         result = await self.db.execute(
             select(UserDevice)
             .options(selectinload(UserDevice.owner))
-            .where(UserDevice.secret_key == device_key, UserDevice.is_active == True)
+            .where(UserDevice.secret_key == device_key, UserDevice.is_active.is_(True))
         )
         device = result.scalar_one_or_none()
         return device.owner if device else None
@@ -161,7 +160,7 @@ class ShopService:
 
     async def purchase_item(
         self, user: User, item_id: uuid.UUID, purchase_type: PurchaseType
-    ) -> tuple[bool, str, Optional[uuid.UUID]]:
+    ) -> tuple[bool, str, uuid.UUID | None]:
         """
         Purchase an item.
         Returns (success, message, purchase_id).
@@ -169,35 +168,35 @@ class ShopService:
         # Get the item and its price
         price = 0
         item_name = ""
-        
+
         if purchase_type == PurchaseType.COSMETIC:
             item = await self.get_cosmetic(item_id)
             if not item or not item.enabled:
                 return False, "Cosmetic not found or not available", None
             price = item.price
             item_name = item.name
-            
+
         elif purchase_type == PurchaseType.GAMEPLAY:
             item = await self.get_gameplay(item_id)
             if not item or not item.enabled:
                 return False, "Gameplay item not found or not available", None
             price = item.price
             item_name = item.name
-            
+
         elif purchase_type == PurchaseType.ITEM:
             item = await self.get_item(item_id)
             if not item or not item.enabled:
                 return False, "Item not found or not available", None
             price = item.price
             item_name = item.name
-            
+
         elif purchase_type == PurchaseType.SPECIAL:
             item = await self.get_special(item_id)
             if not item or not item.enabled:
                 return False, "Special not found or not available", None
             price = item.price
             item_name = item.name
-            
+
         elif purchase_type == PurchaseType.MODULE:
             item = await self.get_module(item_id)
             if not item or item.status != ModuleStatus.PUBLISHED:
@@ -241,7 +240,7 @@ class ShopService:
 
     async def download_cosmetic(
         self, user: User, item_id: uuid.UUID
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """
         Download a purchased cosmetic.
         Returns dict with id, name, cosmetic_type, json_data, sprites.
@@ -264,7 +263,7 @@ class ShopService:
                 sprite_files = [f"bg_{bg_name}.png"]
                 if json_data.get("day_night"):
                     sprite_files.append(f"bg_{bg_name}_night.png")
-                
+
                 # TODO: Load actual sprite files from assets folder
                 # For now, return sprite names
                 for sprite_file in sprite_files:
@@ -280,7 +279,7 @@ class ShopService:
 
     async def download_gameplay(
         self, user: User, item_id: uuid.UUID
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """
         Download a purchased gameplay item.
         Returns dict with id, name, json_data.
@@ -300,7 +299,7 @@ class ShopService:
 
     async def download_item(
         self, user: User, item_id: uuid.UUID
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """
         Download a purchased item.
         Returns dict with id, name, json_data, sprites.
@@ -326,7 +325,7 @@ class ShopService:
 
     async def download_module(
         self, user: User, item_id: uuid.UUID
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """
         Download a purchased module.
         Returns dict with id, name, version, file_data (base64).
@@ -370,7 +369,7 @@ class ShopService:
     # Free first module for new accounts
     # ========================================================================
 
-    async def get_first_official_module(self) -> Optional[GameModule]:
+    async def get_first_official_module(self) -> GameModule | None:
         """
         Get the first available official module for new users.
         Returns the first published official module sorted by name.
@@ -379,7 +378,7 @@ class ShopService:
             select(GameModule)
             .where(
                 GameModule.status == ModuleStatus.PUBLISHED,
-                GameModule.is_official == True
+                GameModule.is_official.is_(True)
             )
             .order_by(GameModule.name)
             .limit(1)
@@ -397,11 +396,11 @@ class ShopService:
 
     async def grant_free_first_module(
         self, user: User
-    ) -> tuple[bool, str, Optional[uuid.UUID]]:
+    ) -> tuple[bool, str, uuid.UUID | None]:
         """
         Grant the first official module for free to a new user.
         Only grants if user has no existing purchases.
-        
+
         Returns (success, message, module_id).
         """
         # Check if user already has purchases
@@ -428,17 +427,17 @@ class ShopService:
 
     async def check_and_grant_free_module(
         self, user: User
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """
         Check if user is eligible for a free first module and grant it if so.
-        
+
         Returns module info dict if granted, None otherwise.
         """
         success, message, module_id = await self.grant_free_first_module(user)
-        
+
         if not success:
             return None
-        
+
         # Return module info for immediate download
         module = await self.get_module(module_id)
         if module:

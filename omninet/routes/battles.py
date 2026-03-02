@@ -5,11 +5,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from omninet.routes.deps import DbSession, CurrentUser
+from omninet.routes.deps import CurrentUser, DbSession
 from omninet.schemas.battle import (
-    BattleResponse,
-    BattleHistoryResponse,
     BattleHistoryListResponse,
+    BattleHistoryResponse,
+    BattleResponse,
     FindBattleResponse,
 )
 from omninet.services.battle import BattleService

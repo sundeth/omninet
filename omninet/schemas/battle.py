@@ -1,8 +1,7 @@
 """
 Battle and team related Pydantic schemas.
 """
-from datetime import datetime, date
-from typing import Any, Optional
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -13,22 +12,22 @@ from omninet.models.battle import BattleResult, SeasonStatus
 class SeasonRestrictions(BaseModel):
     """Season restrictions schema."""
 
-    allowed_stages: Optional[list[int]] = None
-    allowed_attributes: Optional[list[str]] = None
-    allowed_modules: Optional[list[str]] = None
+    allowed_stages: list[int] | None = None
+    allowed_attributes: list[str] | None = None
+    allowed_modules: list[str] | None = None
 
 
 class SeasonCreate(BaseModel):
     """Schema for creating a season."""
 
     name: str = Field(..., min_length=1, max_length=200)
-    description: Optional[str] = None
+    description: str | None = None
     start_date: date
     end_date: date
-    restrictions: Optional[SeasonRestrictions] = None
+    restrictions: SeasonRestrictions | None = None
     reward_multiplier: float = 1.0
-    theme_name: Optional[str] = None
-    banner_url: Optional[str] = None
+    theme_name: str | None = None
+    banner_url: str | None = None
 
 
 class SeasonResponse(BaseModel):
@@ -36,14 +35,14 @@ class SeasonResponse(BaseModel):
 
     id: UUID
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     start_date: date
     end_date: date
     status: SeasonStatus
-    restrictions: Optional[dict] = None
+    restrictions: dict | None = None
     reward_multiplier: float
-    theme_name: Optional[str] = None
-    banner_url: Optional[str] = None
+    theme_name: str | None = None
+    banner_url: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -55,18 +54,18 @@ class PetCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     module_name: str
     module_version: str
-    pet_version: Optional[str] = None
+    pet_version: str | None = None
     stage: int = Field(default=1, ge=1, le=7)
     level: int = Field(default=1, ge=1)
     atk_main: str
-    atk_alt: Optional[str] = None
-    atk_alt2: Optional[str] = None
+    atk_alt: str | None = None
+    atk_alt2: str | None = None
     power: int = Field(default=0, ge=0)
-    attribute: Optional[str] = None
+    attribute: str | None = None
     hp: int = Field(default=100, ge=1)
     star: int = Field(default=1, ge=1, le=5)
     critical_turn: int = Field(default=0, ge=0)
-    extra_data: Optional[dict] = None
+    extra_data: dict | None = None
 
 
 class PetResponse(BaseModel):
@@ -76,18 +75,18 @@ class PetResponse(BaseModel):
     name: str
     module_name: str
     module_version: str
-    pet_version: Optional[str] = None
+    pet_version: str | None = None
     stage: int
     level: int
     atk_main: str
-    atk_alt: Optional[str] = None
-    atk_alt2: Optional[str] = None
+    atk_alt: str | None = None
+    atk_alt2: str | None = None
     power: int
-    attribute: Optional[str] = None
+    attribute: str | None = None
     hp: int
     star: int
     critical_turn: int
-    extra_data: Optional[dict] = None
+    extra_data: dict | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -96,7 +95,7 @@ class PetResponse(BaseModel):
 class TeamCreate(BaseModel):
     """Schema for creating a team."""
 
-    name: Optional[str] = Field(None, max_length=100)
+    name: str | None = Field(None, max_length=100)
     pets: list[PetCreate] = Field(..., min_length=1, max_length=3)
 
 
@@ -104,7 +103,7 @@ class TeamResponse(BaseModel):
     """Schema for team response."""
 
     id: UUID
-    name: Optional[str] = None
+    name: str | None = None
     score: int
     wins: int
     losses: int
@@ -112,8 +111,8 @@ class TeamResponse(BaseModel):
     rewarded_coins: int
     reward_claimed: bool
     is_active: bool
-    season_id: Optional[UUID] = None
-    season_name: Optional[str] = None
+    season_id: UUID | None = None
+    season_name: str | None = None
     pets: list[PetResponse]
     created_at: datetime
     updated_at: datetime
@@ -125,14 +124,14 @@ class TeamListResponse(BaseModel):
     """Simplified team list response."""
 
     id: UUID
-    name: Optional[str] = None
+    name: str | None = None
     score: int
     wins: int
     losses: int
     draws: int
     pet_count: int
     reward_claimed: bool
-    season_name: Optional[str] = None
+    season_name: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -145,12 +144,12 @@ class BattleResponse(BaseModel):
     team1_id: UUID
     team2_id: UUID
     result: BattleResult
-    winner_id: Optional[UUID] = None
+    winner_id: UUID | None = None
     team1_score_change: int
     team2_score_change: int
     duration_seconds: int
     fought_at: datetime
-    battle_log: Optional[dict] = None
+    battle_log: dict | None = None
 
     model_config = {"from_attributes": True}
 
@@ -172,7 +171,7 @@ class BattleHistoryListResponse(BaseModel):
     """List of battle history entries."""
 
     team_id: UUID
-    team_name: Optional[str] = None
+    team_name: str | None = None
     battles: list[BattleHistoryResponse]
     total_battles: int
 
@@ -182,7 +181,7 @@ class FindBattleResponse(BaseModel):
 
     battle_found: bool
     message: str
-    battle: Optional[BattleResponse] = None
+    battle: BattleResponse | None = None
     daily_battles_remaining: int
 
 

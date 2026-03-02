@@ -3,7 +3,7 @@ User-related database models.
 """
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
@@ -12,8 +12,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from omninet.database import Base
 
 if TYPE_CHECKING:
-    from omninet.models.module import GameModule, ModuleContributor
     from omninet.models.battle import GameTeam
+    from omninet.models.module import GameModule, ModuleContributor
     from omninet.models.shop import UserPurchase
 
 
@@ -26,7 +26,7 @@ class UserType(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -61,7 +61,7 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
-    last_login_at: Mapped[Optional[datetime]] = mapped_column(
+    last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
@@ -102,7 +102,7 @@ class UserDevice(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     secret_key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
-    device_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    device_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     device_type: Mapped[str] = mapped_column(
         String(50), default="application"
     )  # application, game
@@ -110,7 +110,7 @@ class UserDevice(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-    last_used_at: Mapped[Optional[datetime]] = mapped_column(
+    last_used_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 

@@ -1,7 +1,8 @@
 """
 Common response schemas.
 """
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Generic, TypeVar
+
 from pydantic import BaseModel
 
 T = TypeVar("T")
@@ -18,16 +19,16 @@ class ErrorResponse(BaseModel):
     """Error response."""
 
     error: str
-    detail: Optional[str] = None
-    code: Optional[str] = None
+    detail: str | None = None
+    code: str | None = None
 
 
 class SuccessResponse(BaseModel):
     """Success response with optional data."""
 
     success: bool = True
-    message: Optional[str] = None
-    data: Optional[Any] = None
+    message: str | None = None
+    data: Any | None = None
 
 
 class PaginatedResponse(BaseModel, Generic[T]):

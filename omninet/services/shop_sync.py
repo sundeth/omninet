@@ -7,14 +7,12 @@ import json
 import uuid
 from datetime import datetime, time
 from pathlib import Path
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from omninet.database import async_session_maker
-from omninet.models import ShopCosmetic, ShopGameplay, ShopItem, CosmeticType
-
+from omninet.models import CosmeticType, ShopCosmetic, ShopGameplay, ShopItem
 
 # Storage paths
 STORAGE_PATH = Path(__file__).parent.parent.parent / "storage"
@@ -33,7 +31,7 @@ async def sync_backgrounds(db: AsyncSession) -> int:
         print(f"[ShopSync] Backgrounds JSON not found: {BACKGROUNDS_JSON}")
         return 0
 
-    with open(BACKGROUNDS_JSON, "r", encoding="utf-8") as f:
+    with open(BACKGROUNDS_JSON, encoding="utf-8") as f:
         data = json.load(f)
 
     backgrounds = data.get("backgrounds", [])
@@ -102,7 +100,7 @@ async def sync_backgrounds(db: AsyncSession) -> int:
     if updated:
         with open(BACKGROUNDS_JSON, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-        print(f"[ShopSync] Updated backgrounds.json with new IDs")
+        print("[ShopSync] Updated backgrounds.json with new IDs")
 
     return synced
 
@@ -117,7 +115,7 @@ async def sync_gameplay(db: AsyncSession) -> int:
         print(f"[ShopSync] Gameplay JSON not found: {GAMEPLAY_JSON}")
         return 0
 
-    with open(GAMEPLAY_JSON, "r", encoding="utf-8") as f:
+    with open(GAMEPLAY_JSON, encoding="utf-8") as f:
         data = json.load(f)
 
     gameplay_items = data.get("gameplay", [])
@@ -184,7 +182,7 @@ async def sync_gameplay(db: AsyncSession) -> int:
     if updated:
         with open(GAMEPLAY_JSON, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-        print(f"[ShopSync] Updated gameplay.json with new IDs")
+        print("[ShopSync] Updated gameplay.json with new IDs")
 
     return synced
 
@@ -199,7 +197,7 @@ async def sync_items(db: AsyncSession) -> int:
         print(f"[ShopSync] Items JSON not found: {ITEMS_JSON}")
         return 0
 
-    with open(ITEMS_JSON, "r", encoding="utf-8") as f:
+    with open(ITEMS_JSON, encoding="utf-8") as f:
         data = json.load(f)
 
     items = data.get("item", [])
@@ -269,7 +267,7 @@ async def sync_items(db: AsyncSession) -> int:
     if updated:
         with open(ITEMS_JSON, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-        print(f"[ShopSync] Updated items.json with new IDs")
+        print("[ShopSync] Updated items.json with new IDs")
 
     return synced
 
@@ -277,18 +275,18 @@ async def sync_items(db: AsyncSession) -> int:
 async def run_shop_sync():
     """Run a full shop sync."""
     print("[ShopSync] Starting shop sync...")
-    
+
     async with async_session_maker() as db:
         try:
             bg_count = await sync_backgrounds(db)
             print(f"[ShopSync] Synced {bg_count} backgrounds")
-            
+
             gp_count = await sync_gameplay(db)
             print(f"[ShopSync] Synced {gp_count} gameplay items")
-            
+
             item_count = await sync_items(db)
             print(f"[ShopSync] Synced {item_count} items")
-            
+
             print("[ShopSync] Shop sync complete")
         except Exception as e:
             print(f"[ShopSync] Error during sync: {e}")
@@ -310,17 +308,17 @@ async def shop_sync_worker():
     while True:
         # Calculate time until next midnight
         now = datetime.now()
-        next_midnight = datetime.combine(now.date(), time(0, 0)) 
+        next_midnight = datetime.combine(now.date(), time(0, 0))
         if now >= next_midnight:
             # Already past midnight today, schedule for tomorrow
             from datetime import timedelta
             next_midnight += timedelta(days=1)
-        
+
         sleep_seconds = (next_midnight - now).total_seconds()
         print(f"[ShopSync] Next sync scheduled in {sleep_seconds / 3600:.1f} hours")
-        
+
         await asyncio.sleep(sleep_seconds)
-        
+
         try:
             await run_shop_sync()
         except Exception as e:

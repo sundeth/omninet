@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database (shared with Java service if running)
+  # PostgreSQL Database
   postgres:
     image: postgres:15
     container_name: omninet-postgres
@@ -21,20 +21,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # Redis (for caching verification codes)
-  redis:
-    image: redis:7-alpine
-    container_name: omninet-redis
-    networks:
-      - omninet-network
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # Omninet Development Server
   omninet-dev:
     build:
@@ -44,7 +30,6 @@ services:
     environment:
       - ENVIRONMENT=dev
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-root}@postgres:5432/omnipet_dev
-      - REDIS_URL=redis://redis:6379/0
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
       - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
       - SMTP_PORT=${SMTP_PORT:-587}
@@ -60,11 +45,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
     command: ["python", "-m", "uvicorn", "omninet.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
-  # Omninet Production Server
+  # Omninet Production Server (local testing only)
   omninet-prd:
     build:
       context: .
@@ -73,7 +56,6 @@ services:
     environment:
       - ENVIRONMENT=prd
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD}@postgres:5432/omnipet_prd
-      - REDIS_URL=redis://redis:6379/1
       - SECRET_KEY=${SECRET_KEY}
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_PORT=${SMTP_PORT}
@@ -87,8 +69,6 @@ services:
       - "8001:8000"
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     profiles:
       - production

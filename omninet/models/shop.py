@@ -4,7 +4,7 @@ Shop related database models.
 import enum
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -16,14 +16,13 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from omninet.database import Base
 
 if TYPE_CHECKING:
     from omninet.models.user import User
-    from omninet.models.module import GameModule
 
 
 class CosmeticType(enum.Enum):
@@ -45,8 +44,8 @@ class ShopCosmetic(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     price: Mapped[int] = mapped_column(Integer, default=0)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    json_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    sprite_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    json_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    sprite_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     sell_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -68,10 +67,10 @@ class ShopGameplay(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     price: Mapped[int] = mapped_column(Integer, default=0)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    json_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    json_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     sell_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -93,11 +92,11 @@ class ShopItem(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     price: Mapped[int] = mapped_column(Integer, default=0)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    json_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    sprite_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    json_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    sprite_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     sell_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -119,13 +118,13 @@ class ShopSpecial(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     price: Mapped[int] = mapped_column(Integer, default=0)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    json_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    json_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     sell_count: Mapped[int] = mapped_column(Integer, default=0)
-    start_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    end_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

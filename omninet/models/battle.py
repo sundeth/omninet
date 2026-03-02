@@ -3,10 +3,11 @@ Battle and team related database models.
 """
 import enum
 import uuid
-from datetime import datetime, date
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Date,
     DateTime,
@@ -17,7 +18,6 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
-    JSON,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -56,7 +56,7 @@ class Season(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[SeasonStatus] = mapped_column(
@@ -65,14 +65,14 @@ class Season(Base):
 
     # Season restrictions (JSON for flexibility)
     # Example: {"allowed_stages": [3, 4, 5], "allowed_attributes": ["Vaccine", "Data"], "allowed_modules": ["DMX", "DM20"]}
-    restrictions: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    restrictions: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Reward multiplier for this season
     reward_multiplier: Mapped[float] = mapped_column(default=1.0)
 
     # Season theme metadata
-    theme_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    banner_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    theme_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    banner_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -118,10 +118,10 @@ class GameTeam(Base):
     owner_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    season_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    season_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("seasons.id"), nullable=True
     )
-    name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     score: Mapped[int] = mapped_column(Integer, default=0)
     wins: Mapped[int] = mapped_column(Integer, default=0)
     losses: Mapped[int] = mapped_column(Integer, default=0)
@@ -173,7 +173,7 @@ class GamePet(Base):
     owner_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    team_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    team_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("game_teams.id", ondelete="SET NULL"), nullable=True
     )
 
@@ -181,22 +181,22 @@ class GamePet(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     module_name: Mapped[str] = mapped_column(String(200), nullable=False)
     module_version: Mapped[str] = mapped_column(String(50), nullable=False)
-    pet_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    pet_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Pet stats
     stage: Mapped[int] = mapped_column(Integer, default=1)
     level: Mapped[int] = mapped_column(Integer, default=1)
     atk_main: Mapped[str] = mapped_column(String(100), nullable=True)
-    atk_alt: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    atk_alt2: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    atk_alt: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    atk_alt2: Mapped[str | None] = mapped_column(String(100), nullable=True)
     power: Mapped[int] = mapped_column(Integer, default=0)
-    attribute: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    attribute: Mapped[str | None] = mapped_column(String(50), nullable=True)
     hp: Mapped[int] = mapped_column(Integer, default=100)
     star: Mapped[int] = mapped_column(Integer, default=1)
     critical_turn: Mapped[int] = mapped_column(Integer, default=0)
 
     # Additional pet data (JSON for flexibility)
-    extra_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    extra_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -226,16 +226,16 @@ class GameBattle(Base):
     team2_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("game_teams.id", ondelete="CASCADE"), nullable=False
     )
-    season_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    season_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("seasons.id"), nullable=True
     )
-    winner_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    winner_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("game_teams.id"), nullable=True
     )
     result: Mapped[BattleResult] = mapped_column(Enum(BattleResult), nullable=False)
 
     # Battle log (JSON containing the full battle replay data)
-    battle_log: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    battle_log: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Battle metadata
     team1_score_change: Mapped[int] = mapped_column(Integer, default=0)

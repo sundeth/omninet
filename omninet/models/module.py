@@ -44,7 +44,7 @@ class ModuleCategory(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     display_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -72,14 +72,14 @@ class GameModule(Base):
     )
     name: Mapped[str] = mapped_column(String(200), unique=True, nullable=False, index=True)
     version: Mapped[str] = mapped_column(String(50), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    category_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    category_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("module_categories.id"), nullable=True
     )
     status: Mapped[ModuleStatus] = mapped_column(
         Enum(ModuleStatus), default=ModuleStatus.DRAFT
     )
-    file_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     file_size: Mapped[int] = mapped_column(Integer, default=0)
     download_count: Mapped[int] = mapped_column(Integer, default=0)
     price: Mapped[int] = mapped_column(Integer, default=0)
@@ -125,7 +125,7 @@ class ModuleContributor(Base):
     added_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-    added_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+    added_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )
 

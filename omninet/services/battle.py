@@ -2,20 +2,20 @@
 Battle service for managing battles.
 """
 import random
-from datetime import date, datetime, timezone
-from typing import Any, Optional
+from datetime import date
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from omninet.models.battle import GameBattle, GameTeam, GamePet, BattleResult
-from omninet.models.user import User
+from omninet.config import settings
+from omninet.models.battle import BattleResult, GameBattle, GamePet, GameTeam
 from omninet.models.logs import ActivityType
+from omninet.models.user import User
 from omninet.services.logging import LoggingService
 from omninet.services.team import TeamService
-from omninet.config import settings
 
 
 class BattleService:
@@ -26,7 +26,7 @@ class BattleService:
         self.logging_service = LoggingService(db)
         self.team_service = TeamService(db)
 
-    async def get_by_id(self, battle_id: UUID) -> Optional[GameBattle]:
+    async def get_by_id(self, battle_id: UUID) -> GameBattle | None:
         """Get battle by ID."""
         query = (
             select(GameBattle)
@@ -85,7 +85,7 @@ class BattleService:
         self,
         user: User,
         team_id: UUID,
-    ) -> tuple[bool, str, Optional[GameBattle], int]:
+    ) -> tuple[bool, str, GameBattle | None, int]:
         """
         Find and execute a battle.
         Returns (success, message, battle, remaining_battles).
@@ -197,7 +197,7 @@ class BattleService:
         """
         Simulate a battle between two teams.
         Returns (result, battle_log, duration_seconds).
-        
+
         This is a simplified battle simulation. The actual game has
         a more complex battle system that could be ported here.
         """

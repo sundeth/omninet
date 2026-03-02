@@ -35,6 +35,9 @@ ENV PATH=/home/omninet/.local/bin:$PATH
 
 # Copy application code
 COPY omninet/ ./omninet/
+COPY alembic/ ./alembic/
+COPY alembic.ini .
+COPY storage/ ./storage/
 
 # Create storage directories
 RUN mkdir -p /app/storage/modules /app/storage/logs \

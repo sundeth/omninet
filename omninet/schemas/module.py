@@ -2,7 +2,6 @@
 Module-related Pydantic schemas.
 """
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -15,7 +14,7 @@ class CategoryResponse(BaseModel):
 
     id: UUID
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     display_order: int
 
     model_config = {"from_attributes": True}
@@ -26,15 +25,15 @@ class ModuleCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=200)
     version: str = Field(..., min_length=1, max_length=50)
-    description: Optional[str] = None
-    category_id: Optional[UUID] = None
+    description: str | None = None
+    category_id: UUID | None = None
 
 
 class ModuleUpdate(BaseModel):
     """Schema for updating a module."""
 
-    description: Optional[str] = None
-    category_id: Optional[UUID] = None
+    description: str | None = None
+    category_id: UUID | None = None
 
 
 class ModulePublishRequest(BaseModel):
@@ -51,7 +50,7 @@ class ModulePublishResponse(BaseModel):
     is_new: bool
     is_update: bool
     message: str
-    module_id: Optional[UUID] = None
+    module_id: UUID | None = None
 
 
 class ModuleResponse(BaseModel):
@@ -60,8 +59,8 @@ class ModuleResponse(BaseModel):
     id: UUID
     name: str
     version: str
-    description: Optional[str] = None
-    category: Optional[CategoryResponse] = None
+    description: str | None = None
+    category: CategoryResponse | None = None
     status: ModuleStatus
     owner_nickname: str
     file_size: int
@@ -78,8 +77,8 @@ class ModuleListResponse(BaseModel):
     id: UUID
     name: str
     version: str
-    description: Optional[str] = None
-    category_name: Optional[str] = None
+    description: str | None = None
+    category_name: str | None = None
     status: ModuleStatus
     owner_nickname: str
     download_count: int

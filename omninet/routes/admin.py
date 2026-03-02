@@ -1,19 +1,18 @@
 """
 Admin routes.
 """
-from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from omninet.models.module import ModuleStatus
 from omninet.models.logs import ActivityType
-from omninet.routes.deps import DbSession, AdminUser
+from omninet.models.module import ModuleStatus
+from omninet.routes.deps import AdminUser, DbSession
 from omninet.schemas.common import MessageResponse
-from omninet.services.user import UserService
-from omninet.services.module import ModuleService
 from omninet.services.logging import LoggingService
+from omninet.services.module import ModuleService
 from omninet.services.season import SeasonService
+from omninet.services.user import UserService
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -173,9 +172,9 @@ async def update_season_statuses(
 async def get_activity_logs(
     admin_user: AdminUser,
     db: DbSession,
-    activity_type: Optional[str] = None,
-    user_id: Optional[UUID] = None,
-    target_id: Optional[UUID] = None,
+    activity_type: str | None = None,
+    user_id: UUID | None = None,
+    target_id: UUID | None = None,
     limit: int = Query(100, ge=1, le=500),
 ):
     """Get activity logs (admin only)."""

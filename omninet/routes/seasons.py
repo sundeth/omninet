@@ -1,13 +1,12 @@
 """
 Season routes.
 """
-from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 
 from omninet.models.battle import SeasonStatus
-from omninet.routes.deps import DbSession, CurrentUser, AdminUser
+from omninet.routes.deps import AdminUser, DbSession
 from omninet.schemas.battle import SeasonCreate, SeasonResponse
 from omninet.services.season import SeasonService
 
@@ -17,7 +16,7 @@ router = APIRouter(prefix="/seasons", tags=["Seasons"])
 @router.get("", response_model=list[SeasonResponse])
 async def list_seasons(
     db: DbSession,
-    status_filter: Optional[SeasonStatus] = Query(None, alias="status"),
+    status_filter: SeasonStatus | None = Query(None, alias="status"),
     limit: int = Query(20, ge=1, le=100),
 ):
     """List seasons with optional status filter."""

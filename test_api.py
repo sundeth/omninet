@@ -1,6 +1,8 @@
 """Quick test of the Omninet API."""
-import httpx
 import asyncio
+
+import httpx
+
 
 async def test_register():
     async with httpx.AsyncClient() as client:

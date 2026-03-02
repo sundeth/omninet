@@ -2,7 +2,6 @@
 Shop API routes.
 """
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,22 +9,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from omninet.database import get_db
 from omninet.models import PurchaseType
 from omninet.schemas.shop import (
+    CosmeticDownloadResponse,
     CosmeticListItem,
     CosmeticListResponse,
-    CosmeticDownloadResponse,
+    GameplayDownloadResponse,
     GameplayListItem,
     GameplayListResponse,
-    GameplayDownloadResponse,
+    ItemDownloadResponse,
     ItemListItem,
     ItemListResponse,
-    ItemDownloadResponse,
+    ModuleDownloadResponse,
     ModuleShopListItem,
     ModuleShopListResponse,
-    ModuleDownloadResponse,
-    SpecialListItem,
-    SpecialListResponse,
     PurchaseRequest,
     PurchaseResponse,
+    SpecialListItem,
+    SpecialListResponse,
     UserPurchaseItem,
     UserPurchasesResponse,
 )
@@ -62,7 +61,7 @@ async def list_cosmetics(db: AsyncSession = Depends(get_db)):
     """List all available cosmetics in the shop."""
     shop_service = get_shop_service(db)
     cosmetics = await shop_service.list_cosmetics()
-    
+
     items = [
         CosmeticListItem(
             id=c.id,
@@ -73,7 +72,7 @@ async def list_cosmetics(db: AsyncSession = Depends(get_db)):
         )
         for c in cosmetics
     ]
-    
+
     return CosmeticListResponse(cosmetics=items, total=len(items))
 
 
@@ -82,7 +81,7 @@ async def list_gameplay(db: AsyncSession = Depends(get_db)):
     """List all available gameplay items in the shop."""
     shop_service = get_shop_service(db)
     gameplay_items = await shop_service.list_gameplay()
-    
+
     items = [
         GameplayListItem(
             id=g.id,
@@ -92,7 +91,7 @@ async def list_gameplay(db: AsyncSession = Depends(get_db)):
         )
         for g in gameplay_items
     ]
-    
+
     return GameplayListResponse(gameplay=items, total=len(items))
 
 
@@ -101,7 +100,7 @@ async def list_items(db: AsyncSession = Depends(get_db)):
     """List all available items in the shop."""
     shop_service = get_shop_service(db)
     shop_items = await shop_service.list_items()
-    
+
     items = [
         ItemListItem(
             id=i.id,
@@ -112,19 +111,19 @@ async def list_items(db: AsyncSession = Depends(get_db)):
         )
         for i in shop_items
     ]
-    
+
     return ItemListResponse(items=items, total=len(items))
 
 
 @router.get("/modules", response_model=ModuleShopListResponse)
 async def list_modules(
-    category: Optional[str] = None,
+    category: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """List all available modules in the shop, optionally filtered by category."""
     shop_service = get_shop_service(db)
     modules = await shop_service.list_modules(category=category)
-    
+
     items = [
         ModuleShopListItem(
             id=m.id,
@@ -138,7 +137,7 @@ async def list_modules(
         )
         for m in modules
     ]
-    
+
     return ModuleShopListResponse(modules=items, total=len(items))
 
 
@@ -147,7 +146,7 @@ async def list_specials(db: AsyncSession = Depends(get_db)):
     """List all available special items in the shop."""
     shop_service = get_shop_service(db)
     specials = await shop_service.list_specials()
-    
+
     items = [
         SpecialListItem(
             id=s.id,
@@ -159,7 +158,7 @@ async def list_specials(db: AsyncSession = Depends(get_db)):
         )
         for s in specials
     ]
-    
+
     return SpecialListResponse(specials=items, total=len(items))
 
 
@@ -176,13 +175,13 @@ async def purchase_item(
     """Purchase an item from the shop."""
     shop_service = get_shop_service(db)
     user = await shop_service.get_user_by_device_key(device_key)
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or inactive device key",
         )
-    
+
     # Map string to enum
     try:
         purchase_type = PurchaseType(request.purchase_type)
@@ -191,13 +190,13 @@ async def purchase_item(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid purchase type: {request.purchase_type}",
         )
-    
+
     success, message, purchase_id = await shop_service.purchase_item(
         user=user,
         item_id=request.item_id,
         purchase_type=purchase_type,
     )
-    
+
     return PurchaseResponse(
         success=success,
         message=message,
@@ -214,15 +213,15 @@ async def get_user_purchases(
     """Get all purchases for the authenticated user."""
     shop_service = get_shop_service(db)
     user = await shop_service.get_user_by_device_key(device_key)
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or inactive device key",
         )
-    
+
     purchases = await shop_service.get_user_purchases(user.id)
-    
+
     items = [
         UserPurchaseItem(
             id=p.id,
@@ -233,7 +232,7 @@ async def get_user_purchases(
         )
         for p in purchases
     ]
-    
+
     return UserPurchasesResponse(purchases=items, total=len(items))
 
 
@@ -250,21 +249,21 @@ async def download_cosmetic(
     """Download a purchased cosmetic."""
     shop_service = get_shop_service(db)
     user = await shop_service.get_user_by_device_key(device_key)
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or inactive device key",
         )
-    
+
     result = await shop_service.download_cosmetic(user, item_id)
-    
+
     if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Cosmetic not found or not owned",
         )
-    
+
     return CosmeticDownloadResponse(**result)
 
 
@@ -277,21 +276,21 @@ async def download_gameplay(
     """Download a purchased gameplay item."""
     shop_service = get_shop_service(db)
     user = await shop_service.get_user_by_device_key(device_key)
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or inactive device key",
         )
-    
+
     result = await shop_service.download_gameplay(user, item_id)
-    
+
     if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Gameplay item not found or not owned",
         )
-    
+
     return GameplayDownloadResponse(**result)
 
 
@@ -304,21 +303,21 @@ async def download_item(
     """Download a purchased item."""
     shop_service = get_shop_service(db)
     user = await shop_service.get_user_by_device_key(device_key)
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or inactive device key",
         )
-    
+
     result = await shop_service.download_item(user, item_id)
-    
+
     if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Item not found or not owned",
         )
-    
+
     return ItemDownloadResponse(**result)
 
 
@@ -331,21 +330,21 @@ async def download_module(
     """Download a purchased module."""
     shop_service = get_shop_service(db)
     user = await shop_service.get_user_by_device_key(device_key)
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or inactive device key",
         )
-    
+
     result = await shop_service.download_module(user, item_id)
-    
+
     if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Module not found or not owned",
         )
-    
+
     return ModuleDownloadResponse(**result)
 
 
@@ -360,21 +359,21 @@ async def claim_free_module(
 ):
     """
     Check if user is eligible for a free first official module and claim it.
-    
+
     New users with no purchases are eligible for one free official module.
     If eligible and an official module exists, it will be automatically granted.
     """
     from omninet.schemas.shop import FreeModuleCheckResponse
-    
+
     shop_service = get_shop_service(db)
     user = await shop_service.get_user_by_device_key(device_key)
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or inactive device key",
         )
-    
+
     # Check if user already has purchases
     has_purchases = await shop_service.user_has_any_purchases(user.id)
     if has_purchases:
@@ -383,10 +382,10 @@ async def claim_free_module(
             granted=False,
             message="Not eligible - user already has purchases"
         )
-    
+
     # Try to grant free module
     result = await shop_service.check_and_grant_free_module(user)
-    
+
     if result:
         return FreeModuleCheckResponse(
             eligible=True,

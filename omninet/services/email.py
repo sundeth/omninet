@@ -1,13 +1,11 @@
 """
 Email service for sending verification and notification emails.
 """
-import asyncio
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Optional
 
 import aiosmtplib
-from jinja2 import Environment, BaseLoader
+from jinja2 import BaseLoader, Environment
 
 from omninet.config import settings
 
@@ -72,7 +70,7 @@ class EmailService:
         to_email: str,
         subject: str,
         html_content: str,
-        text_content: Optional[str] = None,
+        text_content: str | None = None,
     ) -> bool:
         """Send an email using SMTP."""
         if not settings.smtp_user or not settings.smtp_password:

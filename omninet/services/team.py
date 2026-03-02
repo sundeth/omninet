@@ -1,20 +1,19 @@
 """
 Team service for managing game teams.
 """
-from datetime import date, datetime, timezone
-from typing import Optional
+from datetime import date
 from uuid import UUID
 
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from omninet.models.battle import GameTeam, GamePet, Season
-from omninet.models.user import User
+from omninet.config import settings
+from omninet.models.battle import GamePet, GameTeam
 from omninet.models.logs import ActivityType
+from omninet.models.user import User
 from omninet.services.logging import LoggingService
 from omninet.services.season import SeasonService
-from omninet.config import settings
 
 
 class TeamService:
@@ -25,7 +24,7 @@ class TeamService:
         self.logging_service = LoggingService(db)
         self.season_service = SeasonService(db)
 
-    async def get_by_id(self, team_id: UUID) -> Optional[GameTeam]:
+    async def get_by_id(self, team_id: UUID) -> GameTeam | None:
         """Get team by ID with pets."""
         query = (
             select(GameTeam)
@@ -65,7 +64,7 @@ class TeamService:
                         or_(
                             GameTeam.season_id == current_season.id,
                             and_(
-                                GameTeam.reward_claimed == False,
+                                GameTeam.reward_claimed.is_(False),
                                 GameTeam.rewarded_coins > 0,
                             ),
                         )
@@ -77,10 +76,10 @@ class TeamService:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def get_user_current_team(self, user_id: UUID) -> Optional[GameTeam]:
+    async def get_user_current_team(self, user_id: UUID) -> GameTeam | None:
         """Get user's team for the current season."""
         current_season = await self.season_service.get_or_create_weekly_season()
-        
+
         query = (
             select(GameTeam)
             .options(
@@ -89,7 +88,7 @@ class TeamService:
             )
             .where(GameTeam.owner_id == user_id)
             .where(GameTeam.season_id == current_season.id)
-            .where(GameTeam.is_active == True)
+            .where(GameTeam.is_active.is_(True))
         )
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
@@ -97,12 +96,12 @@ class TeamService:
     async def count_user_current_teams(self, user_id: UUID) -> int:
         """Count user's teams in current season."""
         current_season = await self.season_service.get_or_create_weekly_season()
-        
+
         query = (
             select(func.count(GameTeam.id))
             .where(GameTeam.owner_id == user_id)
             .where(GameTeam.season_id == current_season.id)
-            .where(GameTeam.is_active == True)
+            .where(GameTeam.is_active.is_(True))
         )
         result = await self.db.execute(query)
         return result.scalar_one()
@@ -111,8 +110,8 @@ class TeamService:
         self,
         user: User,
         pets_data: list[dict],
-        team_name: Optional[str] = None,
-    ) -> tuple[bool, str, Optional[GameTeam]]:
+        team_name: str | None = None,
+    ) -> tuple[bool, str, GameTeam | None]:
         """
         Create a new team for the current season.
         Returns (success, message, team).
@@ -219,7 +218,7 @@ class TeamService:
         query = (
             select(GameTeam)
             .where(GameTeam.owner_id == user.id)
-            .where(GameTeam.reward_claimed == False)
+            .where(GameTeam.reward_claimed.is_(False))
             .where(GameTeam.rewarded_coins > 0)
         )
         result = await self.db.execute(query)
@@ -287,10 +286,9 @@ class TeamService:
         self,
         team: GameTeam,
         user_id: UUID,
-    ) -> Optional[GameTeam]:
+    ) -> GameTeam | None:
         """Find a random opponent team that hasn't been matched yet today."""
         from omninet.models.battle import GameBattle
-        from datetime import date
 
         today = date.today()
 
@@ -311,7 +309,7 @@ class TeamService:
             .options(selectinload(GameTeam.pets), selectinload(GameTeam.owner))
             .where(GameTeam.season_id == team.season_id)
             .where(GameTeam.owner_id != user_id)  # Not own team
-            .where(GameTeam.is_active == True)
+            .where(GameTeam.is_active.is_(True))
             .where(GameTeam.id.not_in(subquery))  # Not fought today
             .order_by(func.random())  # Random selection
             .limit(1)

@@ -1,23 +1,22 @@
 """
 Authentication routes.
 """
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, status
 
-from omninet.database import get_db
-from omninet.routes.deps import DbSession, CurrentUser, get_client_ip
+from omninet.routes.deps import CurrentUser, DbSession, get_client_ip
+from omninet.schemas.common import MessageResponse
 from omninet.schemas.user import (
+    CoinBalanceResponse,
+    DeviceKeyResponse,
+    PairingCodeResponse,
+    PairingValidateRequest,
+    PasswordResetConfirm,
+    PasswordResetRequest,
     UserCreate,
     UserLogin,
     UserResponse,
     VerificationRequest,
-    DeviceKeyResponse,
-    PairingCodeResponse,
-    PairingValidateRequest,
-    PasswordResetRequest,
-    PasswordResetConfirm,
-    CoinBalanceResponse,
 )
-from omninet.schemas.common import MessageResponse, SuccessResponse
 from omninet.services.auth import AuthService
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])

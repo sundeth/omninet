@@ -2,24 +2,22 @@
 Authentication service.
 """
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
-from uuid import UUID
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from omninet.models.user import User
-from omninet.models.logs import ActivityType
-from omninet.services.user import UserService
-from omninet.services.device import DeviceService
-from omninet.services.logging import LoggingService
-from omninet.services.email import email_service
-from omninet.services.cache import verification_cache
-from omninet.services.security import (
-    verify_password,
-    generate_verification_code,
-)
 from omninet.config import settings
+from omninet.models.logs import ActivityType
+from omninet.models.user import User
+from omninet.services.cache import verification_cache
+from omninet.services.device import DeviceService
+from omninet.services.email import email_service
+from omninet.services.logging import LoggingService
+from omninet.services.security import (
+    generate_verification_code,
+    verify_password,
+)
+from omninet.services.user import UserService
 
 
 class AuthService:
@@ -36,8 +34,8 @@ class AuthService:
         nickname: str,
         email: str,
         password: str,
-        ip_address: Optional[str] = None,
-    ) -> tuple[bool, str, Optional[User]]:
+        ip_address: str | None = None,
+    ) -> tuple[bool, str, User | None]:
         """
         Register a new user and send verification email.
         Returns (success, message, user).
@@ -89,8 +87,8 @@ class AuthService:
         self,
         email: str,
         code: str,
-        ip_address: Optional[str] = None,
-    ) -> tuple[bool, str, Optional[str], Optional[uuid.UUID]]:
+        ip_address: str | None = None,
+    ) -> tuple[bool, str, str | None, uuid.UUID | None]:
         """
         Verify user registration with code.
         Returns (success, message, secret_key, device_id).
@@ -135,8 +133,8 @@ class AuthService:
         self,
         email: str,
         password: str,
-        ip_address: Optional[str] = None,
-    ) -> tuple[bool, str, Optional[User]]:
+        ip_address: str | None = None,
+    ) -> tuple[bool, str, User | None]:
         """
         Authenticate user and send verification code.
         Returns (success, message, user).
@@ -177,8 +175,8 @@ class AuthService:
         email: str,
         code: str,
         clear_devices: bool = False,
-        ip_address: Optional[str] = None,
-    ) -> tuple[bool, str, Optional[str], Optional[uuid.UUID]]:
+        ip_address: str | None = None,
+    ) -> tuple[bool, str, str | None, uuid.UUID | None]:
         """
         Verify login with code.
         Returns (success, message, secret_key, device_id).
@@ -210,7 +208,7 @@ class AuthService:
         )
 
         # Update last login
-        user.last_login_at = datetime.now(timezone.utc)
+        user.last_login_at = datetime.now(UTC)
         await self.db.flush()
 
         # Log activity
@@ -226,8 +224,8 @@ class AuthService:
     async def validate_device(
         self,
         secret_key: str,
-        ip_address: Optional[str] = None,
-    ) -> Optional[User]:
+        ip_address: str | None = None,
+    ) -> User | None:
         """Validate a device secret key and return the user."""
         return await self.device_service.validate_secret_key(secret_key)
 
@@ -242,8 +240,8 @@ class AuthService:
     async def validate_game_pairing(
         self,
         code: str,
-        ip_address: Optional[str] = None,
-    ) -> tuple[bool, str, Optional[str], Optional[uuid.UUID]]:
+        ip_address: str | None = None,
+    ) -> tuple[bool, str, str | None, uuid.UUID | None]:
         """
         Validate a game pairing code and create a device.
         Returns (success, message, secret_key, device_id).
@@ -330,7 +328,7 @@ class AuthService:
         email: str,
         code: str,
         new_password: str,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
     ) -> tuple[bool, str]:
         """Reset password with verification code."""
         # Verify code

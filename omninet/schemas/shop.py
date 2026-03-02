@@ -3,10 +3,9 @@ Shop-related Pydantic schemas.
 """
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
-
 
 # ============================================================================
 # Base schemas
@@ -30,8 +29,8 @@ class CosmeticListItem(BaseModel):
     name: str
     cosmetic_type: str
     price: int
-    sprite_name: Optional[str] = None
-    
+    sprite_name: str | None = None
+
     class Config:
         from_attributes = True
 
@@ -47,7 +46,7 @@ class CosmeticDownloadResponse(BaseModel):
     id: uuid.UUID
     name: str
     cosmetic_type: str
-    json_data: Optional[dict[str, Any]] = None
+    json_data: dict[str, Any] | None = None
     sprites: dict[str, str] = Field(default_factory=dict)  # name -> base64 data
 
 
@@ -59,9 +58,9 @@ class GameplayListItem(BaseModel):
     """Gameplay item for shop listing."""
     id: uuid.UUID
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     price: int
-    
+
     class Config:
         from_attributes = True
 
@@ -76,7 +75,7 @@ class GameplayDownloadResponse(BaseModel):
     """Response for downloading a purchased gameplay item."""
     id: uuid.UUID
     name: str
-    json_data: Optional[dict[str, Any]] = None
+    json_data: dict[str, Any] | None = None
 
 
 # ============================================================================
@@ -87,10 +86,10 @@ class ItemListItem(BaseModel):
     """Item for shop listing."""
     id: uuid.UUID
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     price: int
-    sprite_name: Optional[str] = None
-    
+    sprite_name: str | None = None
+
     class Config:
         from_attributes = True
 
@@ -105,7 +104,7 @@ class ItemDownloadResponse(BaseModel):
     """Response for downloading a purchased item."""
     id: uuid.UUID
     name: str
-    json_data: Optional[dict[str, Any]] = None
+    json_data: dict[str, Any] | None = None
     sprites: dict[str, str] = Field(default_factory=dict)  # name -> base64 data
 
 
@@ -118,12 +117,12 @@ class ModuleShopListItem(BaseModel):
     id: uuid.UUID
     name: str
     version: str
-    description: Optional[str] = None
-    category: Optional[str] = None
+    description: str | None = None
+    category: str | None = None
     price: int
     owner_nickname: str
     is_official: bool = False
-    
+
     class Config:
         from_attributes = True
 
@@ -150,11 +149,11 @@ class SpecialListItem(BaseModel):
     """Special item for shop listing."""
     id: uuid.UUID
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     price: int
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
-    
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+
     class Config:
         from_attributes = True
 
@@ -179,8 +178,8 @@ class PurchaseResponse(BaseModel):
     """Response for a purchase."""
     success: bool
     message: str
-    purchase_id: Optional[uuid.UUID] = None
-    coins_remaining: Optional[int] = None
+    purchase_id: uuid.UUID | None = None
+    coins_remaining: int | None = None
 
 
 class UserPurchaseItem(BaseModel):
@@ -190,7 +189,7 @@ class UserPurchaseItem(BaseModel):
     purchase_type: str
     price_paid: int
     purchased_at: datetime
-    
+
     class Config:
         from_attributes = True
 
@@ -209,6 +208,6 @@ class FreeModuleCheckResponse(BaseModel):
     """Response for checking/claiming free first module."""
     eligible: bool
     granted: bool
-    module_id: Optional[uuid.UUID] = None
-    module_name: Optional[str] = None
+    module_id: uuid.UUID | None = None
+    module_name: str | None = None
     message: str

@@ -1,7 +1,7 @@
 """
 Dependency injection for API routes.
 """
-from typing import Annotated, Optional
+from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,7 @@ from omninet.services.device import DeviceService
 
 
 async def get_current_user(
-    x_device_key: Annotated[Optional[str], Header()] = None,
+    x_device_key: Annotated[str | None, Header()] = None,
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """
@@ -46,9 +46,9 @@ async def get_current_user(
 
 
 async def get_current_user_optional(
-    x_device_key: Annotated[Optional[str], Header()] = None,
+    x_device_key: Annotated[str | None, Header()] = None,
     db: AsyncSession = Depends(get_db),
-) -> Optional[User]:
+) -> User | None:
     """
     Get the current user if authenticated, otherwise return None.
     """
@@ -73,7 +73,7 @@ async def get_admin_user(
     return current_user
 
 
-def get_client_ip(request: Request) -> Optional[str]:
+def get_client_ip(request: Request) -> str | None:
     """Get client IP address from request."""
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
@@ -83,6 +83,6 @@ def get_client_ip(request: Request) -> Optional[str]:
 
 # Type aliases for common dependencies
 CurrentUser = Annotated[User, Depends(get_current_user)]
-OptionalUser = Annotated[Optional[User], Depends(get_current_user_optional)]
+OptionalUser = Annotated[User | None, Depends(get_current_user_optional)]
 AdminUser = Annotated[User, Depends(get_admin_user)]
 DbSession = Annotated[AsyncSession, Depends(get_db)]

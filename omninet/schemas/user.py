@@ -2,7 +2,6 @@
 User-related Pydantic schemas.
 """
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -36,7 +35,7 @@ class UserLogin(BaseModel):
 class UserUpdate(BaseModel):
     """Schema for updating user profile."""
 
-    nickname: Optional[str] = Field(None, min_length=3, max_length=100)
+    nickname: str | None = Field(None, min_length=3, max_length=100)
 
 
 class UserResponse(BaseModel):
@@ -51,7 +50,7 @@ class UserResponse(BaseModel):
     coins: int
     created_at: datetime
     updated_at: datetime
-    last_login_at: Optional[datetime] = None
+    last_login_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -70,11 +69,11 @@ class DeviceResponse(BaseModel):
     """Schema for device response."""
 
     id: UUID
-    device_name: Optional[str] = None
+    device_name: str | None = None
     device_type: str
     is_active: bool
     created_at: datetime
-    last_used_at: Optional[datetime] = None
+    last_used_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 

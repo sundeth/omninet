@@ -2,10 +2,10 @@
 Activity logging service.
 """
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, desc
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from omninet.models.logs import ActivityLog, ActivityType
@@ -20,13 +20,13 @@ class LoggingService:
     async def log_activity(
         self,
         activity_type: ActivityType,
-        user_id: Optional[UUID] = None,
-        target_id: Optional[UUID] = None,
-        target_type: Optional[str] = None,
-        description: Optional[str] = None,
-        log_metadata: Optional[dict[str, Any]] = None,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None,
+        user_id: UUID | None = None,
+        target_id: UUID | None = None,
+        target_type: str | None = None,
+        description: str | None = None,
+        log_metadata: dict[str, Any] | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
     ) -> ActivityLog:
         """Log an activity."""
         log = ActivityLog(
@@ -63,7 +63,7 @@ class LoggingService:
     async def get_target_activity(
         self,
         target_id: UUID,
-        target_type: Optional[str] = None,
+        target_type: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[ActivityLog]:
@@ -78,8 +78,8 @@ class LoggingService:
     async def get_activity_by_type(
         self,
         activity_type: ActivityType,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         limit: int = 100,
     ) -> list[ActivityLog]:
         """Get activity logs by type within a date range."""
@@ -95,7 +95,7 @@ class LoggingService:
     async def get_recent_activity(
         self,
         limit: int = 100,
-        activity_types: Optional[list[ActivityType]] = None,
+        activity_types: list[ActivityType] | None = None,
     ) -> list[ActivityLog]:
         """Get recent activity logs."""
         query = select(ActivityLog)

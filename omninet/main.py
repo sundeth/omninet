@@ -2,8 +2,8 @@
 Main FastAPI application entry point.
 """
 import asyncio
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,16 +11,16 @@ from fastapi.responses import JSONResponse
 
 from omninet import __version__
 from omninet.config import settings
-from omninet.database import init_db, close_db
+from omninet.database import close_db, init_db
 from omninet.routes import (
-    auth_router,
-    users_router,
-    modules_router,
-    teams_router,
-    battles_router,
-    seasons_router,
     admin_router,
+    auth_router,
+    battles_router,
+    modules_router,
+    seasons_router,
     shop_router,
+    teams_router,
+    users_router,
 )
 from omninet.services.cache import verification_cache
 from omninet.services.shop_sync import shop_sync_worker
@@ -70,6 +70,7 @@ app = FastAPI(
     description="Backend API for Omnipet virtual pet game",
     version=__version__,
     lifespan=lifespan,
+    root_path=settings.root_path,
     docs_url="/docs" if settings.is_dev else None,
     redoc_url="/redoc" if settings.is_dev else None,
 )
@@ -77,9 +78,11 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.is_dev else [
-        "https://omnipet.duckdns.org",
-    ],
+    allow_origins=["*"] if settings.is_dev else (
+        settings.cors_origin_list or [
+            "https://omnipet.app.br",
+        ]
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -4,9 +4,8 @@ Activity logging model for tracking server events.
 import enum
 import uuid
 from datetime import datetime
-from typing import Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func, JSON
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -69,19 +68,19 @@ class ActivityLog(Base):
     activity_type: Mapped[ActivityType] = mapped_column(
         Enum(ActivityType), nullable=False, index=True
     )
-    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    target_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    target_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True, index=True
     )
-    target_type: Mapped[Optional[str]] = mapped_column(
+    target_type: Mapped[str | None] = mapped_column(
         String(50), nullable=True
     )  # user, module, team, battle, season
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    log_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
-    user_agent: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    log_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

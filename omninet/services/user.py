@@ -1,10 +1,9 @@
 """
 User service for managing user accounts.
 """
-from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -18,7 +17,7 @@ class UserService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def get_by_id(self, user_id: UUID) -> Optional[User]:
+    async def get_by_id(self, user_id: UUID) -> User | None:
         """Get user by ID."""
         query = (
             select(User)
@@ -28,7 +27,7 @@ class UserService:
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
-    async def get_by_email(self, email: str) -> Optional[User]:
+    async def get_by_email(self, email: str) -> User | None:
         """Get user by email."""
         query = (
             select(User)
@@ -38,7 +37,7 @@ class UserService:
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
-    async def get_by_nickname(self, nickname: str) -> Optional[User]:
+    async def get_by_nickname(self, nickname: str) -> User | None:
         """Get user by nickname."""
         query = (
             select(User)

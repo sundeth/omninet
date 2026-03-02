@@ -2,25 +2,20 @@
 Module service for managing game modules.
 """
 import json
-import os
-import shutil
 import zipfile
-from datetime import datetime
 from io import BytesIO
-from pathlib import Path
-from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import select, func, or_
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from omninet.config import settings
+from omninet.models.logs import ActivityType
 from omninet.models.module import GameModule, ModuleCategory, ModuleContributor, ModuleStatus
 from omninet.models.user import User
-from omninet.models.logs import ActivityType
 from omninet.services.logging import LoggingService
 from omninet.services.user import UserService
-from omninet.config import settings
 
 
 class ModuleService:
@@ -31,7 +26,7 @@ class ModuleService:
         self.logging_service = LoggingService(db)
         self.user_service = UserService(db)
 
-    async def get_by_id(self, module_id: UUID) -> Optional[GameModule]:
+    async def get_by_id(self, module_id: UUID) -> GameModule | None:
         """Get module by ID."""
         query = (
             select(GameModule)
@@ -45,7 +40,7 @@ class ModuleService:
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
-    async def get_by_name(self, name: str) -> Optional[GameModule]:
+    async def get_by_name(self, name: str) -> GameModule | None:
         """Get module by name."""
         query = (
             select(GameModule)
@@ -134,8 +129,8 @@ class ModuleService:
         owner_id: UUID,
         name: str,
         version: str,
-        description: Optional[str] = None,
-        category_name: Optional[str] = None,
+        description: str | None = None,
+        category_name: str | None = None,
     ) -> GameModule:
         """Create a new module."""
         category = None
@@ -167,9 +162,9 @@ class ModuleService:
     async def update_module(
         self,
         module: GameModule,
-        version: Optional[str] = None,
-        description: Optional[str] = None,
-        category_name: Optional[str] = None,
+        version: str | None = None,
+        description: str | None = None,
+        category_name: str | None = None,
     ) -> GameModule:
         """Update module metadata."""
         if version:
@@ -199,7 +194,7 @@ class ModuleService:
         user: User,
         module_name: str,
         zip_data: bytes,
-    ) -> tuple[bool, str, Optional[GameModule]]:
+    ) -> tuple[bool, str, GameModule | None]:
         """
         Publish or update a module from zip file.
         Returns (success, message, module).
@@ -310,7 +305,7 @@ class ModuleService:
 
         return True, "Module unpublished successfully"
 
-    async def get_module_file(self, module_id: UUID) -> Optional[tuple[bytes, str]]:
+    async def get_module_file(self, module_id: UUID) -> tuple[bytes, str] | None:
         """Get module zip file data and filename."""
         module = await self.get_by_id(module_id)
         if not module or not module.file_name:
@@ -339,9 +334,9 @@ class ModuleService:
 
     async def list_modules(
         self,
-        category_id: Optional[UUID] = None,
-        status: Optional[ModuleStatus] = None,
-        search: Optional[str] = None,
+        category_id: UUID | None = None,
+        status: ModuleStatus | None = None,
+        search: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[GameModule], int]:
