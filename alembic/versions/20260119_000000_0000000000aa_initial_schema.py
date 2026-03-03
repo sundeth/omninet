@@ -21,36 +21,6 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # --- Enum types ---
-    op.execute(
-        "CREATE TYPE modulestatus AS ENUM ('draft', 'published', 'unpublished', 'banned')"
-    )
-    op.execute(
-        "CREATE TYPE seasonstatus AS ENUM ('upcoming', 'active', 'completed')"
-    )
-    op.execute(
-        "CREATE TYPE battleresult AS ENUM ('team1_win', 'team2_win', 'draw')"
-    )
-    op.execute(
-        "CREATE TYPE activitytype AS ENUM ("
-        "'user_registered', 'user_verified', 'user_login', 'user_logout',"
-        "'user_device_added', 'user_device_removed', 'user_password_reset',"
-        "'user_coins_earned', 'user_coins_spent',"
-        "'module_created', 'module_updated', 'module_published', 'module_unpublished',"
-        "'module_banned', 'module_downloaded', 'module_contributor_added', 'module_contributor_removed',"
-        "'team_created', 'team_updated', 'team_deleted', 'team_reward_claimed',"
-        "'battle_started', 'battle_completed',"
-        "'season_created', 'season_started', 'season_ended',"
-        "'admin_user_banned', 'admin_module_banned', 'admin_config_changed'"
-        ")"
-    )
-    op.execute(
-        "CREATE TYPE cosmetictype AS ENUM ('background')"
-    )
-    op.execute(
-        "CREATE TYPE purchasetype AS ENUM ('module', 'cosmetic', 'gameplay', 'item', 'special')"
-    )
-
     # --- user_types ---
     op.create_table(
         "user_types",
@@ -97,7 +67,7 @@ def upgrade() -> None:
             sa.Enum(
                 "upcoming", "active", "completed",
                 name="seasonstatus",
-                create_type=False,
+                create_type=True,
             ),
             nullable=False,
         ),
@@ -184,7 +154,7 @@ def upgrade() -> None:
             sa.Enum(
                 "draft", "published", "unpublished", "banned",
                 name="modulestatus",
-                create_type=False,
+                create_type=True,
             ),
             nullable=False,
         ),
@@ -325,7 +295,7 @@ def upgrade() -> None:
             sa.Enum(
                 "team1_win", "team2_win", "draw",
                 name="battleresult",
-                create_type=False,
+                create_type=True,
             ),
             nullable=False,
         ),
@@ -371,7 +341,7 @@ def upgrade() -> None:
                 "season_created", "season_started", "season_ended",
                 "admin_user_banned", "admin_module_banned", "admin_config_changed",
                 name="activitytype",
-                create_type=False,
+                create_type=True,
             ),
             nullable=False,
         ),
@@ -406,7 +376,7 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "cosmetic_type",
-            sa.Enum("background", name="cosmetictype", create_type=False),
+            sa.Enum("background", name="cosmetictype", create_type=True),
             nullable=False,
         ),
         sa.Column("name", sa.String(200), nullable=False),
@@ -522,7 +492,7 @@ def upgrade() -> None:
             sa.Enum(
                 "module", "cosmetic", "gameplay", "item", "special",
                 name="purchasetype",
-                create_type=False,
+                create_type=True,
             ),
             nullable=False,
         ),
