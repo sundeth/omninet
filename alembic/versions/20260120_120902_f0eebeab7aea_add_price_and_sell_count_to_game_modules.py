@@ -8,8 +8,6 @@ Create Date: 2026-01-20 12:09:02.531382+00:00
 
 from collections.abc import Sequence
 
-import sqlalchemy as sa
-
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -20,18 +18,16 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # Add price column with default value of 0
-    op.add_column(
-        "game_modules",
-        sa.Column("price", sa.Integer(), nullable=False, server_default="0"),
-    )
-    # Add sell_count column with default value of 0
-    op.add_column(
-        "game_modules",
-        sa.Column("sell_count", sa.Integer(), nullable=False, server_default="0"),
-    )
+    op.execute("""
+        ALTER TABLE game_modules
+            ADD COLUMN IF NOT EXISTS price      INTEGER NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS sell_count INTEGER NOT NULL DEFAULT 0;
+    """)
 
 
 def downgrade() -> None:
-    op.drop_column("game_modules", "sell_count")
-    op.drop_column("game_modules", "price")
+    op.execute("""
+        ALTER TABLE game_modules
+            DROP COLUMN IF EXISTS sell_count,
+            DROP COLUMN IF EXISTS price;
+    """)

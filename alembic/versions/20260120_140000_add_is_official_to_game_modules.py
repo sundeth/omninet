@@ -8,8 +8,6 @@ Create Date: 2026-01-20 14:00:00.000000+00:00
 
 from collections.abc import Sequence
 
-import sqlalchemy as sa
-
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -20,17 +18,15 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # Add is_official column with default value of False
-    # Official modules are published by the game developers and may be offered
-    # for free to new users as their first module
-    op.add_column(
-        "game_modules",
-        sa.Column("is_official", sa.Boolean(), nullable=False, server_default="false"),
-    )
-    # Create index for quick lookup of official modules
-    op.create_index("ix_game_modules_is_official", "game_modules", ["is_official"])
+    op.execute("""
+        ALTER TABLE game_modules
+            ADD COLUMN IF NOT EXISTS is_official BOOLEAN NOT NULL DEFAULT FALSE;
+    """)
+    op.execute("""
+        CREATE INDEX IF NOT EXISTS ix_game_modules_is_official ON game_modules (is_official);
+    """)
 
 
 def downgrade() -> None:
-    op.drop_index("ix_game_modules_is_official", table_name="game_modules")
-    op.drop_column("game_modules", "is_official")
+    op.execute("DROP INDEX IF EXISTS ix_game_modules_is_official;")
+    op.execute("ALTER TABLE game_modules DROP COLUMN IF EXISTS is_official;")
