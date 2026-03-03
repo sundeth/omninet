@@ -121,6 +121,17 @@ app.include_router(seasons_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
 app.include_router(shop_router, prefix="/api/v1")
 
+# When a root_path prefix is configured (e.g. "/dev"), Swagger UI generates the
+# openapi URL as "{root_path}/openapi.json".  FastAPI only registers "/openapi.json",
+# so direct access (bypassing the reverse proxy) returns 404.  This alias makes the
+# prefixed URL work without relying solely on the proxy to strip the prefix.
+if settings.root_path:
+
+    @app.get(f"{settings.root_path}/openapi.json", include_in_schema=False)
+    async def prefixed_openapi_json() -> JSONResponse:
+        """Alias so Swagger loads correctly when accessed without a reverse proxy."""
+        return JSONResponse(app.openapi())
+
 
 # Health check endpoints
 @app.get("/health")

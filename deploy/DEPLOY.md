@@ -7,10 +7,13 @@ GitHub Actions (on push to develop/main)
   → Lint with ruff
   → Build Docker image
   → Push to ghcr.io/sundeth/omninet:<branch>
-  → SSH into Unraid
-    → Ensure postgres is up
-    → Run Alembic migrations
-    → Restart the app container
+
+Watchtower (on Unraid, polls every 60s)
+  → Detects new image tag
+  → Pulls new image
+  → Recreates container (rolling restart)
+  → entrypoint.sh runs Alembic migrations
+  → uvicorn starts
 ```
 
 **Branch → Environment mapping:**
@@ -25,9 +28,9 @@ GitHub Actions (on push to develop/main)
 | Service         | Container             | Port  | Notes                            |
 |-----------------|-----------------------|-------|----------------------------------|
 | PostgreSQL      | `omninet-postgres`    | 5433  | Dedicated instance (not shared)  |
+| Watchtower      | `omninet-watchtower`  | —     | Auto-pulls & restarts on update  |
 | Staging API     | `omninet-server-dev`  | 8000  | Cloudflare tunnel → `/dev/*`     |
 | Production API  | `omninet-server-prd`  | 8001  | Cloudflare tunnel → `/`          |
-| SSH             | (host)                | 22    | For GitHub Actions deploys       |
 
 **Cloudflare Tunnel configuration:**
 
@@ -45,7 +48,7 @@ GitHub Actions (on push to develop/main)
 ### 1. Create the deployment directory
 
 ```bash
-mkdir -p /mnt/user/appdata/omninet
+mkdir -p /mnt/user/appdata/omninet/{dev,prd}
 ```
 
 ### 2. Copy deployment files
@@ -92,52 +95,71 @@ docker compose -f docker-compose.deploy.yml up -d postgres
 
 This creates both `omnipet_prd` (default) and `omnipet_dev` (via init script) databases.
 
-### 5. Generate an SSH key for GitHub Actions
+> **If the init script didn't run** (volume already existed), create `omnipet_dev` manually:
+> ```bash
+> docker exec omninet-postgres psql -U omnipet -d omnipet_prd -c "CREATE DATABASE omnipet_dev OWNER omnipet;"
+> ```
 
-On your local machine:
+### 5. Seed storage data (shop sync)
+
+The app's shop sync service reads JSON files + images from `/app/storage` (bind-mounted from `./dev` or `./prd`).
+These files are **not** built into the Docker image — place them manually on first deploy.
 
 ```bash
-ssh-keygen -t ed25519 -f omninet-deploy -C "omninet-deploy-key"
+# Copy seed files to staging
+cp -r storage/backgrounds/ /mnt/user/appdata/omninet/dev/backgrounds/
+cp -r storage/items/       /mnt/user/appdata/omninet/dev/items/
+cp -r storage/gameplay/    /mnt/user/appdata/omninet/dev/gameplay/
+
+# Copy seed files to production
+cp -r storage/backgrounds/ /mnt/user/appdata/omninet/prd/backgrounds/
+cp -r storage/items/       /mnt/user/appdata/omninet/prd/items/
+cp -r storage/gameplay/    /mnt/user/appdata/omninet/prd/gameplay/
 ```
 
-Copy the **public** key to Unraid:
+**What each directory contains:**
+| Directory      | Contents                                         |
+|----------------|--------------------------------------------------|
+| `backgrounds/` | Background PNGs + `backgrounds.json` (shop data) |
+| `items/`       | Item icon PNGs + `items.json` (shop data)         |
+| `gameplay/`    | `gameplay.json` (shop data)                       |
+| `modules/`     | Created automatically (user-uploaded modules)     |
+| `logs/`        | Created automatically (app logs)                  |
 
-```bash
-ssh-copy-id -i omninet-deploy.pub root@<UNRAID_IP>
-```
+> If the JSON files are missing, the shop sync service will skip seeding (no error) and the shop will be empty until the files are placed.
 
-### 6. Configure GitHub Secrets
-
-Go to **GitHub → Repository Settings → Secrets and variables → Actions** and add:
-
-| Secret           | Value                                         |
-|------------------|-----------------------------------------------|
-| `UNRAID_HOST`    | Your Unraid IP or hostname                    |
-| `UNRAID_USER`    | `root` (or your SSH user)                     |
-| `UNRAID_SSH_KEY` | Contents of `omninet-deploy` private key file |
-| `UNRAID_SSH_PORT`| `22` (or your custom SSH port)                |
-| `GHCR_PAT`      | GitHub PAT with `read:packages` scope*        |
-
-> *The `GHCR_PAT` is needed for the Unraid server to pull images from ghcr.io.
-> Create one at https://github.com/settings/tokens with `read:packages` scope.
-
-### 7. Configure Cloudflare Tunnel
+### 6. Configure Cloudflare Tunnel
 
 In your Cloudflare Zero Trust dashboard, add two public hostname rules to your existing tunnel:
 
 1. **Production:** `omnipet.app.br` → `http://localhost:8001`
 2. **Staging:** `omnipet.app.br` with path `/dev/*` → `http://localhost:8000`
 
-### 8. First deploy
-
-Push to the `develop` branch — GitHub Actions will build, push, and deploy automatically.
-
-To start both environments manually:
+### 7. Start all services
 
 ```bash
 cd /mnt/user/appdata/omninet
 docker compose -f docker-compose.deploy.yml --profile staging --profile production up -d
 ```
+
+This starts postgres, watchtower, and both app containers.
+
+### 8. First deploy
+
+Push to the `develop` branch — GitHub Actions will lint, build, and push the image to GHCR.
+Watchtower will detect the new image within 60 seconds and automatically restart the container.
+
+---
+
+## How deploys work
+
+1. You push code to `develop` or `main`
+2. GitHub Actions builds the Docker image and pushes it to `ghcr.io/sundeth/omninet:<branch>`
+3. Watchtower (running on Unraid) polls GHCR every 60 seconds
+4. When it detects a new image, it pulls it and recreates the container
+5. The container's `entrypoint.sh` runs `alembic upgrade head` (migrations) then starts uvicorn
+
+No SSH, no webhooks — fully automatic.
 
 ---
 
@@ -151,26 +173,26 @@ docker logs -f omninet-server-dev
 
 # Production
 docker logs -f omninet-server-prd
+
+# Watchtower (to see update activity)
+docker logs -f omninet-watchtower
 ```
 
 ### Run migrations manually
 
+Migrations run automatically on every container start via `entrypoint.sh`.
+To run them manually:
+
 ```bash
-docker run --rm \
-  --network omninet_omninet-network \
-  --env-file /mnt/user/appdata/omninet/.env.staging \
-  ghcr.io/sundeth/omninet:develop \
-  python -m alembic upgrade head
+docker exec omninet-server-dev python -m alembic upgrade head
 ```
 
 ### Rollback a migration
 
 ```bash
-docker run --rm \
-  --network omninet_omninet-network \
-  --env-file /mnt/user/appdata/omninet/.env.production \
-  ghcr.io/sundeth/omninet:main \
-  python -m alembic downgrade -1
+docker exec omninet-server-prd python -m alembic downgrade -1
+# Then restart to pick up the code changes
+docker compose -f docker-compose.deploy.yml --profile production restart omninet-prd
 ```
 
 ### Restart services
@@ -180,3 +202,4 @@ cd /mnt/user/appdata/omninet
 docker compose -f docker-compose.deploy.yml --profile staging restart omninet-dev
 docker compose -f docker-compose.deploy.yml --profile production restart omninet-prd
 ```
+

@@ -66,7 +66,9 @@ class ActivityLog(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     activity_type: Mapped[ActivityType] = mapped_column(
-        Enum(ActivityType), nullable=False, index=True
+        Enum(ActivityType, values_callable=lambda obj: [e.value for e in obj], create_type=False),
+        nullable=False,
+        index=True,
     )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True

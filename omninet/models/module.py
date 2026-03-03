@@ -77,7 +77,8 @@ class GameModule(Base):
         UUID(as_uuid=True), ForeignKey("module_categories.id"), nullable=True
     )
     status: Mapped[ModuleStatus] = mapped_column(
-        Enum(ModuleStatus), default=ModuleStatus.DRAFT
+        Enum(ModuleStatus, values_callable=lambda obj: [e.value for e in obj], create_type=False),
+        default=ModuleStatus.DRAFT,
     )
     file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     file_size: Mapped[int] = mapped_column(Integer, default=0)

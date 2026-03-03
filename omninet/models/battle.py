@@ -60,7 +60,8 @@ class Season(Base):
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[SeasonStatus] = mapped_column(
-        Enum(SeasonStatus), default=SeasonStatus.UPCOMING
+        Enum(SeasonStatus, values_callable=lambda obj: [e.value for e in obj], create_type=False),
+        default=SeasonStatus.UPCOMING,
     )
 
     # Season restrictions (JSON for flexibility)
@@ -232,7 +233,10 @@ class GameBattle(Base):
     winner_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("game_teams.id"), nullable=True
     )
-    result: Mapped[BattleResult] = mapped_column(Enum(BattleResult), nullable=False)
+    result: Mapped[BattleResult] = mapped_column(
+        Enum(BattleResult, values_callable=lambda obj: [e.value for e in obj], create_type=False),
+        nullable=False,
+    )
 
     # Battle log (JSON containing the full battle replay data)
     battle_log: Mapped[dict | None] = mapped_column(JSON, nullable=True)

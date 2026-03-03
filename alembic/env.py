@@ -13,7 +13,7 @@ from alembic import context
 # Import our models and settings
 from omninet.config import settings
 from omninet.database import Base
-from omninet.models import battle, logs, module, user  # noqa: F401
+from omninet.models import battle, logs, module, shop, user  # noqa: F401
 
 # this is the Alembic Config object
 config = context.config
