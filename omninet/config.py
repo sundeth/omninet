@@ -73,6 +73,15 @@ class Settings(BaseSettings):
         return self.database_url if self.environment == "dev" else self.database_url_prd
 
     @property
+    def database_url_sync(self) -> str:
+        """Get a sync (psycopg2) version of the active database URL.
+
+        Alembic migrations run with a sync engine to avoid asyncpg's
+        single-statement-per-execute limitation.
+        """
+        return self.db_url.replace("+asyncpg", "+psycopg2")
+
+    @property
     def is_dev(self) -> bool:
         """Check if running in development mode."""
         return self.environment == "dev"
