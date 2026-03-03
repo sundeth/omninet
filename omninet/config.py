@@ -22,9 +22,8 @@ class Settings(BaseSettings):
     # Environment
     environment: Literal["dev", "prd"] = "dev"
 
-    # Database
-    database_url: str = "postgresql+asyncpg://postgres:root@192.168.100.250:5432/omnipet_dev"
-    database_url_prd: str = "postgresql+asyncpg://postgres:root@192.168.100.250:5432/omnipet_prd"
+    # Database — set via DATABASE_URL env var (each env file provides the correct value)
+    database_url: str = "postgresql+asyncpg://postgres:root@localhost:5432/omnipet_dev"
 
     # Security
     secret_key: str = "your-super-secure-secret-key-change-in-production"
@@ -69,8 +68,8 @@ class Settings(BaseSettings):
 
     @property
     def db_url(self) -> str:
-        """Get the database URL based on environment."""
-        return self.database_url if self.environment == "dev" else self.database_url_prd
+        """Get the active database URL (set by DATABASE_URL env var)."""
+        return self.database_url
 
     @property
     def database_url_sync(self) -> str:
