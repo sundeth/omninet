@@ -39,7 +39,9 @@ class ShopCosmetic(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     cosmetic_type: Mapped[CosmeticType] = mapped_column(
-        Enum(CosmeticType), nullable=False, index=True
+        Enum(CosmeticType, values_callable=lambda obj: [e.value for e in obj], create_type=False),
+        nullable=False,
+        index=True,
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     price: Mapped[int] = mapped_column(Integer, default=0)
@@ -160,7 +162,9 @@ class UserPurchase(Base):
         UUID(as_uuid=True), nullable=False, index=True
     )
     purchase_type: Mapped[PurchaseType] = mapped_column(
-        Enum(PurchaseType), nullable=False, index=True
+        Enum(PurchaseType, values_callable=lambda obj: [e.value for e in obj], create_type=False),
+        nullable=False,
+        index=True,
     )
     price_paid: Mapped[int] = mapped_column(Integer, default=0)
     purchased_at: Mapped[datetime] = mapped_column(
