@@ -305,6 +305,25 @@ class ModuleService:
 
         return True, "Module unpublished successfully"
 
+    async def get_module_sprite(self, module_id: UUID, filename: str) -> bytes | None:
+        """Extract a PNG sprite from the root of a module's zip file."""
+        module = await self.get_by_id(module_id)
+        if not module or not module.file_name:
+            return None
+
+        file_path = settings.modules_path / module.file_name
+        if not file_path.exists():
+            return None
+
+        with open(file_path, "rb") as f:
+            zip_data = f.read()
+
+        with zipfile.ZipFile(BytesIO(zip_data), "r") as zf:
+            if filename not in zf.namelist():
+                return None
+            with zf.open(filename) as img_file:
+                return img_file.read()
+
     async def get_module_file(self, module_id: UUID) -> tuple[bytes, str] | None:
         """Get module zip file data and filename."""
         module = await self.get_by_id(module_id)
