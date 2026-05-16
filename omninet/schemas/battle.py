@@ -116,6 +116,9 @@ class TeamResponse(BaseModel):
     pets: list[PetResponse]
     created_at: datetime
     updated_at: datetime
+    # Populated only by /teams/current (for the arena hub view)
+    rank: int | None = None
+    daily_battles_remaining: int | None = None
 
     model_config = {"from_attributes": True}
 

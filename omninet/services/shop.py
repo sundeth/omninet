@@ -201,8 +201,15 @@ class ShopService:
             item = await self.get_module(item_id)
             if not item or item.status != ModuleStatus.PUBLISHED:
                 return False, "Module not found or not available", None
-            price = item.price
             item_name = item.name
+            # Module pricing is centralized — the DB price column is
+            # ignored.  Every module costs ``settings.module_fixed_price``
+            # except for the player's very first module purchase across
+            # all their linked devices, which is free.
+            if await self.user_has_any_module_purchase(user.id):
+                price = settings.module_fixed_price
+            else:
+                price = 0
         else:
             return False, "Invalid purchase type", None
 
@@ -390,6 +397,20 @@ class ShopService:
         result = await self.db.execute(
             select(UserPurchase.id)
             .where(UserPurchase.user_id == user_id)
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def user_has_any_module_purchase(self, user_id: uuid.UUID) -> bool:
+        """True if the user has ever purchased (or been granted) a module.
+
+        Used by the module-listing/purchase flow to decide whether the
+        player is still eligible for the free-first-module grant.
+        """
+        result = await self.db.execute(
+            select(UserPurchase.id)
+            .where(UserPurchase.user_id == user_id)
+            .where(UserPurchase.purchase_type == PurchaseType.MODULE)
             .limit(1)
         )
         return result.scalar_one_or_none() is not None

@@ -7,7 +7,8 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from omninet.models.battle import GamePet, Season, SeasonStatus
+from omninet.config import settings
+from omninet.models.battle import GamePet, GameTeam, Season, SeasonStatus
 from omninet.models.logs import ActivityType
 from omninet.services.logging import LoggingService
 
@@ -132,7 +133,7 @@ class SeasonService:
         return season
 
     async def update_season_statuses(self) -> None:
-        """Update season statuses based on dates."""
+        """Update season statuses based on dates and pay out top-3 prizes."""
         today = date.today()
 
         # Find seasons that should be active
@@ -166,8 +167,58 @@ class SeasonService:
                 target_type="season",
                 description=f"Season ended: {season.name}",
             )
+            await self.close_season(season)
 
         await self.db.flush()
+
+    async def close_season(self, season: Season) -> list[tuple[UUID, int]]:
+        """
+        Distribute top-3 coin prizes for a finished season.
+
+        Adds the configured first/second/third place coins to each top team's
+        ``rewarded_coins`` so the player can claim them via the normal
+        claim-rewards flow.  Returns the list of (team_id, coins_awarded).
+        Idempotent: safe to call again — but additional calls will keep
+        adding coins, so callers should ensure a season is closed only once.
+        """
+        prizes = [
+            settings.arena_first_place_coins,
+            settings.arena_second_place_coins,
+            settings.arena_third_place_coins,
+        ]
+
+        query = (
+            select(GameTeam)
+            .where(GameTeam.season_id == season.id)
+            .where(GameTeam.is_active.is_(True))
+            .order_by(GameTeam.score.desc(), GameTeam.wins.desc(), GameTeam.created_at.asc())
+            .limit(3)
+        )
+        result = await self.db.execute(query)
+        top_teams = list(result.scalars().all())
+
+        awarded: list[tuple[UUID, int]] = []
+        for rank, (team, prize) in enumerate(zip(top_teams, prizes), start=1):
+            if prize <= 0:
+                continue
+            team.rewarded_coins += prize
+            awarded.append((team.id, prize))
+            await self.logging_service.log_activity(
+                activity_type=ActivityType.TEAM_REWARD_CLAIMED,
+                user_id=team.owner_id,
+                target_id=team.id,
+                target_type="team",
+                description=f"Season top-{rank} prize: {prize} coins ({season.name})",
+                log_metadata={
+                    "season_id": str(season.id),
+                    "rank": rank,
+                    "prize": prize,
+                    "score": team.score,
+                },
+            )
+
+        await self.db.flush()
+        return awarded
 
     async def list_seasons(
         self,

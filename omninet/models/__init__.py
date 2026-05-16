@@ -13,6 +13,7 @@ from omninet.models.shop import (
     ShopSpecial,
     UserPurchase,
 )
+from omninet.models.reward import RewardClaim
 from omninet.models.user import User, UserDevice, UserType
 
 __all__ = [
@@ -35,4 +36,5 @@ __all__ = [
     "UserPurchase",
     "CosmeticType",
     "PurchaseType",
+    "RewardClaim",
 ]

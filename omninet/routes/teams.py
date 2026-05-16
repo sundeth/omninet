@@ -14,6 +14,7 @@ from omninet.schemas.battle import (
     TeamResponse,
 )
 from omninet.schemas.common import MessageResponse
+from omninet.services.battle import BattleService
 from omninet.services.team import TeamService
 
 router = APIRouter(prefix="/teams", tags=["Teams"])
@@ -55,7 +56,11 @@ async def get_current_team(
     current_user: CurrentUser,
     db: DbSession,
 ):
-    """Get the current user's active team for this season."""
+    """Get the current user's active team for this season.
+
+    Includes the team's current rank and daily-battles-remaining for the
+    arena hub view.
+    """
     team_service = TeamService(db)
     team = await team_service.get_user_current_team(current_user.id)
 
@@ -64,6 +69,9 @@ async def get_current_team(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No active team for current season",
         )
+
+    rank = await team_service.get_team_rank(team)
+    _, daily_remaining = await BattleService(db).can_battle(team.id)
 
     return TeamResponse(
         id=team.id,
@@ -101,6 +109,8 @@ async def get_current_team(
         ],
         created_at=team.created_at,
         updated_at=team.updated_at,
+        rank=rank,
+        daily_battles_remaining=daily_remaining,
     )
 
 

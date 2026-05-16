@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     # File Storage
     modules_storage_path: str = "./storage/modules"
     logs_storage_path: str = "./storage/logs"
+    # Shop sprite assets (item icons, cosmetic previews, etc).  Each
+    # item / cosmetic / gameplay entry references a filename via
+    # ``sprite_name``; the file must live in this folder for the
+    # ``GET /shop/{kind}/{id}/sprite`` endpoint to serve it.
+    shop_sprites_path: str = "./storage/shop_sprites"
 
     # Battle Configuration
     max_daily_battles: int = 10
@@ -59,6 +64,33 @@ class Settings(BaseSettings):
     # Verification
     verification_code_expiry_minutes: int = 5
     pairing_code_expiry_minutes: int = 5
+
+    # Fixed price every module costs (the DB ``price`` column is ignored
+    # for modules — pricing is centralized here).  The player's very first
+    # module purchase across all their linked devices is granted for free
+    # regardless.
+    module_fixed_price: int = 50
+
+    # Reward coin values
+    reward_coins_unlock: int = 5
+    reward_coins_evolution: int = 2
+    reward_coins_new_pet: int = 3
+    reward_coins_adventure: int = 10
+
+    # HMAC signing secret for reward claims (must match game client constant)
+    reward_signing_secret: str = "change-me-reward-secret"
+
+    # Arena season coin rewards
+    arena_participation_coins: int = 1   # per battle (any outcome)
+    arena_first_place_coins: int = 50    # season top-3
+    arena_second_place_coins: int = 25
+    arena_third_place_coins: int = 10
+
+    # Game client path — absolute path to the Omnipet game client's src/
+    # directory.  When set, this path is prepended to sys.path at startup
+    # so the server can import the game's battle simulator directly without
+    # copy-pasting code.  Leave empty to skip.
+    game_client_path: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:
