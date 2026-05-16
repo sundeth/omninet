@@ -51,12 +51,16 @@ class Settings(BaseSettings):
     # File Storage
     modules_storage_path: str = "./storage/modules"
     logs_storage_path: str = "./storage/logs"
-    # Shop sprite assets — used by GET /shop/{kind}/{id}/sprite as a
-    # filesystem fallback when an item's json_data doesn't include an
-    # embedded ``sprite_b64`` blob.  Each shop entry references a file
-    # via its ``sprite_name`` column; the file must live in this folder
-    # for the fallback to serve it.
-    shop_sprites_path: str = "./storage/shop_sprites"
+    # Shop sprite assets — root of the per-environment asset tree used by
+    # GET /shop/{kind}/{id}/sprite.  Sprites are looked up under
+    # ``<shop_assets_base>/<environment>/<kind_folder>/<sprite_name>``
+    # where kind_folder is "items" / "backgrounds" / "gameplay" / "specials".
+    #
+    # Example deployed layout (mounted from a network share):
+    #   /appdata/omninet/dev/items/Protein.png
+    #   /appdata/omninet/dev/backgrounds/bg_meadow_day.png
+    #   /appdata/omninet/prd/items/Protein.png
+    shop_assets_base: str = "/appdata/omninet"
     # Shop sprite assets (item icons, cosmetic previews, etc).  Each
     # item / cosmetic / gameplay entry references a filename via
     # ``sprite_name``; the file must live in this folder for the

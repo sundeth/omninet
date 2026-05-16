@@ -189,13 +189,25 @@ async def list_specials(db: AsyncSession = Depends(get_db)):
 # Sprite serving
 # ============================================================================
 
-# Map URL ``kind`` segment to the shop-service getter that resolves the entry.
+# Map URL ``kind`` segment to (shop-service getter, asset-folder name).
+# The folder names match the deployed layout under
+# ``<shop_assets_base>/<environment>/<folder>/`` — sprites for backgrounds
+# live in ``backgrounds`` rather than ``cosmetics`` because that's the
+# admin-friendly category split (the only CosmeticType today is BACKGROUND).
 _SPRITE_KIND_LOADERS = {
-    "item":     lambda svc, item_id: svc.get_item(item_id),
-    "cosmetic": lambda svc, item_id: svc.get_cosmetic(item_id),
-    "gameplay": lambda svc, item_id: svc.get_gameplay(item_id),
-    "special":  lambda svc, item_id: svc.get_special(item_id),
+    "item":     (lambda svc, item_id: svc.get_item(item_id),     "items"),
+    "cosmetic": (lambda svc, item_id: svc.get_cosmetic(item_id), "backgrounds"),
+    "gameplay": (lambda svc, item_id: svc.get_gameplay(item_id), "gameplay"),
+    "special":  (lambda svc, item_id: svc.get_special(item_id),  "specials"),
 }
+
+
+def _shop_sprite_path(folder: str, sprite_name: str) -> str:
+    """Resolve <assets_base>/<environment>/<folder>/<basename(sprite_name)>."""
+    safe_name = os.path.basename(sprite_name)
+    return os.path.join(
+        settings.shop_assets_base, settings.environment, folder, safe_name
+    )
 
 
 @router.get("/{kind}/{item_id}/sprite")
@@ -207,46 +219,61 @@ async def get_shop_sprite(
     """Serve the sprite PNG for a shop entry.
 
     Lookup order:
-        1. The entry's ``json_data['sprite_b64']`` blob (admin-uploaded
-           sprite stored inline in the database).
-        2. ``<settings.shop_sprites_path>/<sprite_name>`` on disk.
+        1. ``<shop_assets_base>/<environment>/<kind_folder>/<sprite_name>``
+           on disk (the per-environment asset tree mounted from the
+           share — admins drop files there and they are served live).
+        2. ``json_data['sprite_b64']`` blob inline in the DB (fallback
+           for one-off entries that didn't ship with a file).
 
-    Returns 404 if neither source produces bytes.  Intended for shop
-    list/detail rendering before purchase; post-purchase the
-    ``/download/<kind>/<id>`` endpoint returns the same bytes (plus json_data).
+    Returns 404 (with a diagnostic ``detail`` string) if neither produces
+    bytes — useful for debugging admin setup.
     """
-    loader = _SPRITE_KIND_LOADERS.get(kind)
-    if loader is None:
+    spec = _SPRITE_KIND_LOADERS.get(kind)
+    if spec is None:
         raise HTTPException(status_code=404, detail="Unknown sprite kind")
+    loader, folder = spec
 
     shop_service = get_shop_service(db)
     entry = await loader(shop_service, item_id)
     if entry is None:
-        raise HTTPException(status_code=404, detail="Shop entry not found")
+        raise HTTPException(status_code=404, detail=f"{kind} {item_id} not found")
 
-    # 1) Inline blob in json_data['sprite_b64']
+    sprite_name = getattr(entry, "sprite_name", None) or ""
+
+    # 1) Filesystem (per-environment asset tree)
+    if sprite_name:
+        path = _shop_sprite_path(folder, sprite_name)
+        if os.path.isfile(path):
+            try:
+                with open(path, "rb") as f:
+                    return Response(content=f.read(), media_type="image/png")
+            except Exception as exc:
+                print(f"[shop] {kind} {item_id} read failed at {path}: {exc}")
+
+    # 2) Inline blob fallback
     json_data = getattr(entry, "json_data", None) or {}
     b64 = json_data.get("sprite_b64") if isinstance(json_data, dict) else None
     if b64:
         try:
             return Response(content=base64.b64decode(b64), media_type="image/png")
-        except Exception:
-            pass  # fall through to filesystem
+        except Exception as exc:
+            print(f"[shop] {kind} {item_id} sprite_b64 decode failed: {exc}")
 
-    # 2) Filesystem fallback
-    sprite_name = getattr(entry, "sprite_name", None)
-    if sprite_name:
-        # Strip any leading path components an admin might have entered
-        safe_name = os.path.basename(sprite_name)
-        path = os.path.join(settings.shop_sprites_path, safe_name)
-        if os.path.isfile(path):
-            try:
-                with open(path, "rb") as f:
-                    return Response(content=f.read(), media_type="image/png")
-            except Exception:
-                pass
-
-    raise HTTPException(status_code=404, detail="Sprite not available")
+    checked_path = (
+        os.path.abspath(_shop_sprite_path(folder, sprite_name))
+        if sprite_name else "(n/a — sprite_name empty)"
+    )
+    print(
+        f"[shop] {kind} {item_id} sprite miss: "
+        f"sprite_name={sprite_name!r}, checked={checked_path}"
+    )
+    raise HTTPException(
+        status_code=404,
+        detail=(
+            f"No sprite for {kind}/{item_id}. "
+            f"sprite_name={sprite_name or '(empty)'}, checked={checked_path}"
+        ),
+    )
 
 
 # ============================================================================
