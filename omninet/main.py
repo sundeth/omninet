@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 
 from omninet import __version__
 from omninet.config import settings
-from omninet.database import close_db, init_db
+from omninet.database import close_db, get_db_context, init_db
 from omninet.routes import (
     admin_router,
     auth_router,
@@ -24,7 +24,6 @@ from omninet.routes import (
     teams_router,
     users_router,
 )
-from omninet.database import get_db_context
 from omninet.services.cache import verification_cache
 from omninet.services.season import SeasonService
 from omninet.services.shop_sync import shop_sync_worker
