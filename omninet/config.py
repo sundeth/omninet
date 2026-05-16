@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     # File Storage
     modules_storage_path: str = "./storage/modules"
     logs_storage_path: str = "./storage/logs"
+    # Shop sprite assets — used by GET /shop/{kind}/{id}/sprite as a
+    # filesystem fallback when an item's json_data doesn't include an
+    # embedded ``sprite_b64`` blob.  Each shop entry references a file
+    # via its ``sprite_name`` column; the file must live in this folder
+    # for the fallback to serve it.
+    shop_sprites_path: str = "./storage/shop_sprites"
     # Shop sprite assets (item icons, cosmetic previews, etc).  Each
     # item / cosmetic / gameplay entry references a filename via
     # ``sprite_name``; the file must live in this folder for the

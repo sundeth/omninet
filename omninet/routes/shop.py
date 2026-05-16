@@ -1,9 +1,12 @@
 """
 Shop API routes.
 """
+import base64
+import os
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from omninet.config import settings
@@ -180,6 +183,70 @@ async def list_specials(db: AsyncSession = Depends(get_db)):
     ]
 
     return SpecialListResponse(specials=items, total=len(items))
+
+
+# ============================================================================
+# Sprite serving
+# ============================================================================
+
+# Map URL ``kind`` segment to the shop-service getter that resolves the entry.
+_SPRITE_KIND_LOADERS = {
+    "item":     lambda svc, item_id: svc.get_item(item_id),
+    "cosmetic": lambda svc, item_id: svc.get_cosmetic(item_id),
+    "gameplay": lambda svc, item_id: svc.get_gameplay(item_id),
+    "special":  lambda svc, item_id: svc.get_special(item_id),
+}
+
+
+@router.get("/{kind}/{item_id}/sprite")
+async def get_shop_sprite(
+    kind: str,
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve the sprite PNG for a shop entry.
+
+    Lookup order:
+        1. The entry's ``json_data['sprite_b64']`` blob (admin-uploaded
+           sprite stored inline in the database).
+        2. ``<settings.shop_sprites_path>/<sprite_name>`` on disk.
+
+    Returns 404 if neither source produces bytes.  Intended for shop
+    list/detail rendering before purchase; post-purchase the
+    ``/download/<kind>/<id>`` endpoint returns the same bytes (plus json_data).
+    """
+    loader = _SPRITE_KIND_LOADERS.get(kind)
+    if loader is None:
+        raise HTTPException(status_code=404, detail="Unknown sprite kind")
+
+    shop_service = get_shop_service(db)
+    entry = await loader(shop_service, item_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Shop entry not found")
+
+    # 1) Inline blob in json_data['sprite_b64']
+    json_data = getattr(entry, "json_data", None) or {}
+    b64 = json_data.get("sprite_b64") if isinstance(json_data, dict) else None
+    if b64:
+        try:
+            return Response(content=base64.b64decode(b64), media_type="image/png")
+        except Exception:
+            pass  # fall through to filesystem
+
+    # 2) Filesystem fallback
+    sprite_name = getattr(entry, "sprite_name", None)
+    if sprite_name:
+        # Strip any leading path components an admin might have entered
+        safe_name = os.path.basename(sprite_name)
+        path = os.path.join(settings.shop_sprites_path, safe_name)
+        if os.path.isfile(path):
+            try:
+                with open(path, "rb") as f:
+                    return Response(content=f.read(), media_type="image/png")
+            except Exception:
+                pass
+
+    raise HTTPException(status_code=404, detail="Sprite not available")
 
 
 # ============================================================================
