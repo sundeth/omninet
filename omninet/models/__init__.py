@@ -4,6 +4,7 @@ Database models package.
 from omninet.models.battle import GameBattle, GamePet, GameTeam, Season
 from omninet.models.logs import ActivityLog
 from omninet.models.module import GameModule, ModuleCategory, ModuleContributor, ModuleStatus
+from omninet.models.reward import RewardClaim
 from omninet.models.shop import (
     CosmeticType,
     PurchaseType,
@@ -13,7 +14,6 @@ from omninet.models.shop import (
     ShopSpecial,
     UserPurchase,
 )
-from omninet.models.reward import RewardClaim
 from omninet.models.user import User, UserDevice, UserType
 
 __all__ = [
