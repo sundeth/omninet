@@ -282,19 +282,31 @@ async def get_shop_sprite(
         except Exception as exc:
             print(f"[shop] {kind} {item_id} sprite_b64 decode failed: {exc}")
 
-    checked_path = (
-        os.path.abspath(_shop_sprite_path(folder, sprite_name))
-        if sprite_name else "(n/a — sprite_name empty)"
-    )
+    # Build a full report of what was tried.  Listing the parent
+    # directory makes typos / case-mismatch jump out immediately.
+    if sprite_name:
+        candidates = [os.path.abspath(p) for p in _shop_sprite_candidates(folder, sprite_name)]
+        parent_dir = os.path.dirname(candidates[0])
+        try:
+            available = sorted(os.listdir(parent_dir))[:30]
+        except Exception as exc:
+            available = [f"<could not list {parent_dir}: {exc}>"]
+    else:
+        candidates = ["(n/a — sprite_name empty)"]
+        parent_dir = "(n/a)"
+        available = []
+
     print(
-        f"[shop] {kind} {item_id} sprite miss: "
-        f"sprite_name={sprite_name!r}, checked={checked_path}"
+        f"[shop:v2] {kind} {item_id} sprite miss: "
+        f"sprite_name={sprite_name!r} folder={folder!r} "
+        f"tried={candidates} dir_listing[:30]={available}"
     )
     raise HTTPException(
         status_code=404,
         detail=(
             f"No sprite for {kind}/{item_id}. "
-            f"sprite_name={sprite_name or '(empty)'}, checked={checked_path}"
+            f"sprite_name={sprite_name or '(empty)'}, "
+            f"tried={candidates}"
         ),
     )
 
