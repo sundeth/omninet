@@ -14,7 +14,6 @@ class Base(DeclarativeBase):
     """Base class for all database models."""
     pass
 
-
 # Create async engine
 engine = create_async_engine(
     settings.db_url,
