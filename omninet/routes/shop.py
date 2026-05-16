@@ -202,12 +202,32 @@ _SPRITE_KIND_LOADERS = {
 }
 
 
-def _shop_sprite_path(folder: str, sprite_name: str) -> str:
-    """Resolve <assets_base>/<environment>/<folder>/<basename(sprite_name)>."""
+_SPRITE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+
+
+def _shop_sprite_candidates(folder: str, sprite_name: str) -> list[str]:
+    """Resolve candidate on-disk paths for a sprite.
+
+    DB rows often store ``sprite_name`` without an extension (e.g.
+    ``"icon_itm802"`` referring to ``icon_itm802.png``).  Try the raw name
+    first, then each common image extension.  Returns the ordered list of
+    absolute paths the endpoint should probe.
+    """
     safe_name = os.path.basename(sprite_name)
-    return os.path.join(
-        settings.shop_assets_base, settings.environment, folder, safe_name
+    base_dir = os.path.join(
+        settings.shop_assets_base, settings.environment, folder
     )
+    candidates = [os.path.join(base_dir, safe_name)]
+    if "." not in safe_name:
+        candidates.extend(
+            os.path.join(base_dir, safe_name + ext) for ext in _SPRITE_EXTENSIONS
+        )
+    return candidates
+
+
+def _shop_sprite_path(folder: str, sprite_name: str) -> str:
+    """First candidate path for diagnostic display (no extension fixup)."""
+    return _shop_sprite_candidates(folder, sprite_name)[0]
 
 
 @router.get("/{kind}/{item_id}/sprite")
@@ -240,10 +260,13 @@ async def get_shop_sprite(
 
     sprite_name = getattr(entry, "sprite_name", None) or ""
 
-    # 1) Filesystem (per-environment asset tree)
+    # 1) Filesystem (per-environment asset tree).  Try sprite_name as-is
+    # first; if it has no extension, also try the common image suffixes
+    # so admin doesn't have to update DB rows that store bare basenames.
     if sprite_name:
-        path = _shop_sprite_path(folder, sprite_name)
-        if os.path.isfile(path):
+        for path in _shop_sprite_candidates(folder, sprite_name):
+            if not os.path.isfile(path):
+                continue
             try:
                 with open(path, "rb") as f:
                     return Response(content=f.read(), media_type="image/png")
