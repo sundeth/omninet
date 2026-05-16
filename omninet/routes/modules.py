@@ -245,6 +245,42 @@ async def unpublish_module(
     return MessageResponse(message=message)
 
 
+@router.get("/{module_id}/logo")
+async def get_module_logo(
+    module_id: UUID,
+    db: DbSession,
+):
+    """Get the logo.png sprite from a module's zip file."""
+    module_service = ModuleService(db)
+    data = await module_service.get_module_sprite(module_id, "logo.png")
+
+    if data is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Module logo not found",
+        )
+
+    return StreamingResponse(BytesIO(data), media_type="image/png")
+
+
+@router.get("/{module_id}/icon")
+async def get_module_icon(
+    module_id: UUID,
+    db: DbSession,
+):
+    """Get the BattleIcon.png sprite from a module's zip file."""
+    module_service = ModuleService(db)
+    data = await module_service.get_module_sprite(module_id, "BattleIcon.png")
+
+    if data is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Module battle icon not found",
+        )
+
+    return StreamingResponse(BytesIO(data), media_type="image/png")
+
+
 @router.get("/{module_id}/download")
 async def download_module(
     module_id: UUID,

@@ -30,6 +30,9 @@ class CosmeticListItem(BaseModel):
     cosmetic_type: str
     price: int
     sprite_name: str | None = None
+    # Background-only metadata (matches game's Background class)
+    day_night: bool = True
+    high_res: bool = False
 
     class Config:
         from_attributes = True

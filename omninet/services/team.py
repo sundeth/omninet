@@ -38,6 +38,39 @@ class TeamService:
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
+    async def get_team_rank(self, team: GameTeam) -> int:
+        """Compute a team's 1-indexed rank within its season.
+
+        Rank is by score desc, with ties broken by wins desc then created_at asc.
+        Returns 1 for the leading team.  Inactive teams or teams without a
+        season return 0.
+        """
+        if not team or not team.season_id or not team.is_active:
+            return 0
+        # Count teams strictly ahead of this one
+        count_query = (
+            select(func.count(GameTeam.id))
+            .where(GameTeam.season_id == team.season_id)
+            .where(GameTeam.is_active.is_(True))
+            .where(
+                or_(
+                    GameTeam.score > team.score,
+                    and_(
+                        GameTeam.score == team.score,
+                        GameTeam.wins > team.wins,
+                    ),
+                    and_(
+                        GameTeam.score == team.score,
+                        GameTeam.wins == team.wins,
+                        GameTeam.created_at < team.created_at,
+                    ),
+                )
+            )
+        )
+        result = await self.db.execute(count_query)
+        ahead = result.scalar_one() or 0
+        return ahead + 1
+
     async def get_user_teams(
         self,
         user_id: UUID,
@@ -261,7 +294,12 @@ class TeamService:
         won: bool,
         draw: bool = False,
     ) -> GameTeam:
-        """Update team score after a battle."""
+        """Update team score after a battle.
+
+        Coin policy: a small participation reward is added per battle
+        regardless of outcome.  The headline rewards are paid out at
+        season close to the top 3 teams (see SeasonService.close_season).
+        """
         team.score += score_change
         if team.score < 0:
             team.score = 0
@@ -273,11 +311,7 @@ class TeamService:
         else:
             team.losses += 1
 
-        # Calculate reward coins (based on score)
-        if won:
-            team.rewarded_coins += max(10, score_change)
-        elif draw:
-            team.rewarded_coins += 5
+        team.rewarded_coins += settings.arena_participation_coins
 
         await self.db.flush()
         return team

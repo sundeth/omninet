@@ -6,6 +6,7 @@ import uuid
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from omninet.config import settings
 from omninet.database import get_db
 from omninet.models import PurchaseType
 from omninet.schemas.shop import (
@@ -69,6 +70,8 @@ async def list_cosmetics(db: AsyncSession = Depends(get_db)):
             cosmetic_type=c.cosmetic_type.value,
             price=c.price,
             sprite_name=c.sprite_name,
+            day_night=getattr(c, 'day_night', True),
+            high_res=getattr(c, 'high_res', False),
         )
         for c in cosmetics
     ]
@@ -118,11 +121,28 @@ async def list_items(db: AsyncSession = Depends(get_db)):
 @router.get("/modules", response_model=ModuleShopListResponse)
 async def list_modules(
     category: str | None = None,
+    device_key: str | None = Header(None, alias="X-Device-Key"),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all available modules in the shop, optionally filtered by category."""
+    """List all available modules in the shop, optionally filtered by category.
+
+    Module pricing is centralized — the DB ``price`` column is ignored.
+    Every module is reported at ``settings.module_fixed_price`` unless the
+    player has never bought a module before, in which case all modules
+    are reported at 0 (the player can pick any one as their free first
+    module).  This is the server's source of truth; the client just
+    renders whatever ``price`` it receives.
+    """
     shop_service = get_shop_service(db)
     modules = await shop_service.list_modules(category=category)
+
+    fixed_price = settings.module_fixed_price
+    effective_price = fixed_price
+
+    if device_key:
+        user = await shop_service.get_user_by_device_key(device_key)
+        if user and not await shop_service.user_has_any_module_purchase(user.id):
+            effective_price = 0
 
     items = [
         ModuleShopListItem(
@@ -131,7 +151,7 @@ async def list_modules(
             version=m.version,
             description=m.description,
             category=m.category.name if m.category else None,
-            price=m.price,
+            price=effective_price,
             owner_nickname=m.owner.nickname if m.owner else "Unknown",
             is_official=m.is_official,
         )

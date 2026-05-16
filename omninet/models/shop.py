@@ -48,6 +48,11 @@ class ShopCosmetic(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     json_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     sprite_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Background-only metadata mirroring the game's Background class:
+    # day_night = True means the asset has separate _day / _night variants,
+    # high_res = True means a *_high.png version is available.
+    day_night: Mapped[bool] = mapped_column(Boolean, default=True)
+    high_res: Mapped[bool] = mapped_column(Boolean, default=False)
     sell_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
