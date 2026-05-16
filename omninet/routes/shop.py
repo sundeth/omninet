@@ -208,15 +208,16 @@ _SPRITE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 def _shop_sprite_candidates(folder: str, sprite_name: str) -> list[str]:
     """Resolve candidate on-disk paths for a sprite.
 
+    Path layout: ``<shop_assets_base>/<folder>/<basename(sprite_name)>``.
+    The environment split (dev vs. prd) is handled by the docker volume
+    mount, so this code path doesn't bake in the env name.
+
     DB rows often store ``sprite_name`` without an extension (e.g.
-    ``"icon_itm802"`` referring to ``icon_itm802.png``).  Try the raw name
-    first, then each common image extension.  Returns the ordered list of
-    absolute paths the endpoint should probe.
+    ``"icon_itm802"`` referring to ``icon_itm802.png``).  Try the raw
+    name first, then each common image extension.
     """
     safe_name = os.path.basename(sprite_name)
-    base_dir = os.path.join(
-        settings.shop_assets_base, settings.environment, folder
-    )
+    base_dir = os.path.join(settings.shop_assets_base, folder)
     candidates = [os.path.join(base_dir, safe_name)]
     if "." not in safe_name:
         candidates.extend(
