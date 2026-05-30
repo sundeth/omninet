@@ -3,7 +3,7 @@ In-memory cache for verification codes.
 For production, consider using Redis.
 """
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 
 class VerificationCache:
@@ -23,7 +23,7 @@ class VerificationCache:
     ) -> None:
         """Store a verification code for an email."""
         async with self._lock:
-            expiry = datetime.now(timezone.utc) + timedelta(minutes=expiry_minutes)
+            expiry = datetime.now(UTC) + timedelta(minutes=expiry_minutes)
             self._verification_codes[email.lower()] = (code, expiry, metadata or {})
 
     async def get_verification_code(
@@ -36,7 +36,7 @@ class VerificationCache:
                 return None
 
             code, expiry, metadata = data
-            if datetime.now(timezone.utc) > expiry:
+            if datetime.now(UTC) > expiry:
                 del self._verification_codes[email.lower()]
                 return None
 
@@ -52,7 +52,7 @@ class VerificationCache:
                 return False, None
 
             stored_code, expiry, metadata = data
-            if datetime.now(timezone.utc) > expiry:
+            if datetime.now(UTC) > expiry:
                 del self._verification_codes[email.lower()]
                 return False, None
 
@@ -71,7 +71,7 @@ class VerificationCache:
     ) -> None:
         """Store a pairing code for device linking."""
         async with self._lock:
-            expiry = datetime.now(timezone.utc) + timedelta(minutes=expiry_minutes)
+            expiry = datetime.now(UTC) + timedelta(minutes=expiry_minutes)
             self._pairing_codes[code.upper()] = (user_id, expiry, {})
 
     async def get_pairing_user(self, code: str) -> str | None:
@@ -82,7 +82,7 @@ class VerificationCache:
                 return None
 
             user_id, expiry, _ = data
-            if datetime.now(timezone.utc) > expiry:
+            if datetime.now(UTC) > expiry:
                 del self._pairing_codes[code.upper()]
                 return None
 
@@ -96,7 +96,7 @@ class VerificationCache:
                 return None
 
             user_id, expiry, _ = data
-            if datetime.now(timezone.utc) > expiry:
+            if datetime.now(UTC) > expiry:
                 del self._pairing_codes[code.upper()]
                 return None
 
@@ -106,7 +106,7 @@ class VerificationCache:
 
     async def cleanup_expired(self) -> None:
         """Remove expired codes from cache."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         async with self._lock:
             # Clean verification codes
             expired_emails = [

@@ -1,7 +1,7 @@
 """
 Device service for managing user devices.
 """
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import delete, select
@@ -72,7 +72,7 @@ class DeviceService:
 
     async def update_last_used(self, device: UserDevice) -> UserDevice:
         """Update the last used timestamp of a device."""
-        device.last_used_at = datetime.now(timezone.utc)
+        device.last_used_at = datetime.now(UTC)
         await self.db.flush()
         return device
 
