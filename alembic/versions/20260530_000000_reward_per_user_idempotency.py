@@ -21,17 +21,56 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute("DROP INDEX IF EXISTS ix_reward_claims_idempotency_key")
-    op.execute("ALTER TABLE reward_claims DROP CONSTRAINT IF EXISTS reward_claims_idempotency_key_key")
-    op.execute("ALTER TABLE reward_claims ALTER COLUMN idempotency_key TYPE VARCHAR(256)")
+    # Wrapped in a DO block so the ALTER statements are skipped on a fresh
+    # database where reward_claims doesn't exist yet.  create_all() will
+    # create the table with the correct schema (VARCHAR(256) + composite
+    # unique) after migrations finish, so nothing is lost.
     op.execute("""
-        ALTER TABLE reward_claims
-        ADD CONSTRAINT uq_reward_claims_user_key
-        UNIQUE (user_id, idempotency_key)
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name = 'reward_claims'
+            ) THEN
+                DROP INDEX IF EXISTS ix_reward_claims_idempotency_key;
+                ALTER TABLE reward_claims
+                    DROP CONSTRAINT IF EXISTS reward_claims_idempotency_key_key;
+                ALTER TABLE reward_claims
+                    ALTER COLUMN idempotency_key TYPE VARCHAR(256);
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints
+                    WHERE table_schema = 'public'
+                      AND constraint_name = 'uq_reward_claims_user_key'
+                ) THEN
+                    ALTER TABLE reward_claims
+                        ADD CONSTRAINT uq_reward_claims_user_key
+                        UNIQUE (user_id, idempotency_key);
+                END IF;
+            END IF;
+        END $$;
     """)
 
 
 def downgrade() -> None:
-    op.execute("ALTER TABLE reward_claims DROP CONSTRAINT IF EXISTS uq_reward_claims_user_key")
-    op.execute("ALTER TABLE reward_claims ALTER COLUMN idempotency_key TYPE VARCHAR(64)")
-    op.execute("CREATE UNIQUE INDEX ix_reward_claims_idempotency_key ON reward_claims (idempotency_key)")
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name = 'reward_claims'
+            ) THEN
+                ALTER TABLE reward_claims
+                    DROP CONSTRAINT IF EXISTS uq_reward_claims_user_key;
+                ALTER TABLE reward_claims
+                    ALTER COLUMN idempotency_key TYPE VARCHAR(64);
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_indexes
+                    WHERE tablename = 'reward_claims'
+                      AND indexname = 'ix_reward_claims_idempotency_key'
+                ) THEN
+                    CREATE UNIQUE INDEX ix_reward_claims_idempotency_key
+                        ON reward_claims (idempotency_key);
+                END IF;
+            END IF;
+        END $$;
+    """)
