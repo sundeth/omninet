@@ -134,7 +134,13 @@ class TeamListResponse(BaseModel):
     draws: int
     pet_count: int
     reward_claimed: bool
+    rewarded_coins: int = 0
+    is_active: bool = True
+    season_id: UUID | None = None
     season_name: str | None = None
+    # Per-user rank within the team's season (1-indexed).  Populated when
+    # the list endpoint can derive it; None for legacy callers.
+    rank: int | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

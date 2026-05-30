@@ -4,7 +4,9 @@ Admin routes.
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import BaseModel
 
+from omninet.config import settings
 from omninet.models.logs import ActivityType
 from omninet.models.module import ModuleStatus
 from omninet.routes.deps import AdminUser, DbSession
@@ -12,9 +14,164 @@ from omninet.schemas.common import MessageResponse
 from omninet.services.logging import LoggingService
 from omninet.services.module import ModuleService
 from omninet.services.season import SeasonService
+from omninet.services.team import TeamService
 from omninet.services.user import UserService
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
+
+
+# ---------------------------------------------------------------------------
+# Dev-only seeding endpoint
+# ---------------------------------------------------------------------------
+
+# DMC pets used to seed every dummy team — values copied from
+# Omnipet/modules/DMC/monster.json so the server-side rank battle code sees
+# legitimate stage-4 pets with non-zero power.  atk_main is stringified to
+# match the GamePet.atk_main column type.
+_DUMMY_TEAM_PETS = [
+    {
+        "name": "Greymon",
+        "module_name": "DMC",
+        "module_version": "1.0",
+        "pet_version": "1",
+        "stage": 4,
+        "level": 1,
+        "atk_main": "4",
+        "atk_alt": None,
+        "atk_alt2": None,
+        "power": 50,
+        "attribute": "Va",
+        "hp": 100,
+        "star": 1,
+        "critical_turn": 0,
+        "extra_data": {"seeded": True, "source": "dev_dummy_teams"},
+    },
+    {
+        "name": "Garurumon",
+        "module_name": "DMC",
+        "module_version": "1.0",
+        "pet_version": "2",
+        "stage": 4,
+        "level": 1,
+        "atk_main": "4",
+        "atk_alt": None,
+        "atk_alt2": None,
+        "power": 45,
+        "attribute": "Va",
+        "hp": 100,
+        "star": 1,
+        "critical_turn": 0,
+        "extra_data": {"seeded": True, "source": "dev_dummy_teams"},
+    },
+    {
+        "name": "Ogremon",
+        "module_name": "DMC",
+        "module_version": "1.0",
+        "pet_version": "3",
+        "stage": 4,
+        "level": 1,
+        "atk_main": "7",
+        "atk_alt": None,
+        "atk_alt2": None,
+        "power": 50,
+        "attribute": "Vi",
+        "hp": 100,
+        "star": 1,
+        "critical_turn": 0,
+        "extra_data": {"seeded": True, "source": "dev_dummy_teams"},
+    },
+]
+
+
+class SeedDummyTeamsResponse(BaseModel):
+    accounts_created: int
+    accounts_reused: int
+    teams_created: int
+    teams_skipped_existing: int
+    season_name: str
+    accounts: list[str]
+
+
+@router.post("/dev/seed-dummy-teams", response_model=SeedDummyTeamsResponse)
+async def seed_dummy_teams(db: DbSession):
+    """Create ``account1``..``account10`` plus a 3-pet team for the current
+    season for each one — DEV ENVIRONMENT ONLY.
+
+    Used to stand up enough server-side rank-battle opponents that the
+    matchmaking code has someone to pair against.  All ten teams share the
+    same Greymon / Garurumon / Ogremon trio from the DMC module.
+
+    Refuses to run unless ``settings.environment == "dev"``.  Safe to
+    re-run: accounts and teams that already exist are skipped rather than
+    duplicated.
+    """
+    if not settings.is_dev:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This endpoint is dev-only",
+        )
+
+    user_service = UserService(db)
+    season_service = SeasonService(db)
+    team_service = TeamService(db)
+
+    season = await season_service.get_or_create_weekly_season()
+
+    accounts_created = 0
+    accounts_reused = 0
+    teams_created = 0
+    teams_skipped_existing = 0
+    account_names: list[str] = []
+
+    for i in range(1, 11):
+        nickname = f"account{i}"
+        email = f"account{i}@dev.local"
+        account_names.append(nickname)
+
+        # Reuse existing user with same nickname (safe re-run) or create new.
+        user = await user_service.get_by_nickname(nickname)
+        if user is None:
+            user = await user_service.create_user(
+                nickname=nickname,
+                email=email,
+                password="devdummy",
+                type_name="Standard",
+                is_verified=True,
+                is_active=True,
+            )
+            accounts_created += 1
+        else:
+            accounts_reused += 1
+
+        # Don't create a duplicate team for the active season.
+        existing = await team_service.get_user_current_team(user.id)
+        if existing is not None and existing.season_id == season.id:
+            teams_skipped_existing += 1
+            continue
+
+        ok, msg, _team = await team_service.create_team(
+            user=user,
+            pets_data=_DUMMY_TEAM_PETS,
+            team_name=f"{nickname}'s squad",
+        )
+        if ok:
+            teams_created += 1
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Team creation failed for {nickname}: {msg}",
+            )
+
+    await db.commit()
+
+    return SeedDummyTeamsResponse(
+        accounts_created=accounts_created,
+        accounts_reused=accounts_reused,
+        teams_created=teams_created,
+        teams_skipped_existing=teams_skipped_existing,
+        season_name=season.name,
+        accounts=account_names,
+    )
 
 
 @router.post("/users/{user_id}/ban", response_model=MessageResponse)

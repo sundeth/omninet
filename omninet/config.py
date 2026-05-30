@@ -88,9 +88,6 @@ class Settings(BaseSettings):
     reward_coins_new_pet: int = 3
     reward_coins_adventure: int = 10
 
-    # HMAC signing secret for reward claims (must match game client constant)
-    reward_signing_secret: str = "change-me-reward-secret"
-
     # Arena season coin rewards
     arena_participation_coins: int = 1   # per battle (any outcome)
     arena_first_place_coins: int = 50    # season top-3

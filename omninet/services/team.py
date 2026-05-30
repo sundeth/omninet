@@ -213,7 +213,7 @@ class TeamService:
             target_id=team.id,
             target_type="team",
             description=f"Team created with {len(pets_data)} pets",
-            metadata={"season_id": str(season.id)},
+            log_metadata={"season_id": str(season.id)},
         )
 
         # Reload with relationships
@@ -275,7 +275,7 @@ class TeamService:
             activity_type=ActivityType.TEAM_REWARD_CLAIMED,
             user_id=user.id,
             description=f"Claimed {total_coins} coins from {len(teams)} teams",
-            metadata={"coins": total_coins, "teams": len(teams)},
+            log_metadata={"coins": total_coins, "teams": len(teams)},
         )
 
         await self.logging_service.log_activity(
