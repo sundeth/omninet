@@ -1,9 +1,12 @@
 """
 Shop API routes.
 """
+import base64
+import os
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from omninet.config import settings
@@ -63,18 +66,31 @@ async def list_cosmetics(db: AsyncSession = Depends(get_db)):
     shop_service = get_shop_service(db)
     cosmetics = await shop_service.list_cosmetics()
 
-    items = [
-        CosmeticListItem(
+    def _resolve_flags(c):
+        """Filesystem-derived day_night / high_res for background cosmetics.
+
+        For background entries the truth is on disk — variants only exist
+        if the admin actually shipped the files — so we ignore any stale
+        DB values and probe the asset folder instead.  Non-background
+        cosmetics keep whatever the row stores.
+        """
+        ctype = c.cosmetic_type.value if hasattr(c.cosmetic_type, "value") else c.cosmetic_type
+        if ctype == "background":
+            return detect_background_flags(c.sprite_name or "")
+        return (getattr(c, 'day_night', True), getattr(c, 'high_res', False))
+
+    items = []
+    for c in cosmetics:
+        day_night, high_res = _resolve_flags(c)
+        items.append(CosmeticListItem(
             id=c.id,
             name=c.name,
             cosmetic_type=c.cosmetic_type.value,
             price=c.price,
             sprite_name=c.sprite_name,
-            day_night=getattr(c, 'day_night', True),
-            high_res=getattr(c, 'high_res', False),
-        )
-        for c in cosmetics
-    ]
+            day_night=day_night,
+            high_res=high_res,
+        ))
 
     return CosmeticListResponse(cosmetics=items, total=len(items))
 
@@ -180,6 +196,232 @@ async def list_specials(db: AsyncSession = Depends(get_db)):
     ]
 
     return SpecialListResponse(specials=items, total=len(items))
+
+
+# ============================================================================
+# Sprite serving
+# ============================================================================
+
+# Map URL ``kind`` segment to (shop-service getter, asset-folder name).
+# The folder names match the deployed layout under
+# ``<shop_assets_base>/<environment>/<folder>/`` — sprites for backgrounds
+# live in ``backgrounds`` rather than ``cosmetics`` because that's the
+# admin-friendly category split (the only CosmeticType today is BACKGROUND).
+_SPRITE_KIND_LOADERS = {
+    "item":     (lambda svc, item_id: svc.get_item(item_id),     "items"),
+    "cosmetic": (lambda svc, item_id: svc.get_cosmetic(item_id), "backgrounds"),
+    "gameplay": (lambda svc, item_id: svc.get_gameplay(item_id), "gameplay"),
+    "special":  (lambda svc, item_id: svc.get_special(item_id),  "specials"),
+}
+
+
+_SPRITE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+
+
+def _shop_sprite_candidates(folder: str, sprite_name: str) -> list[str]:
+    """Resolve candidate on-disk paths for a sprite.
+
+    Path layout: ``<shop_assets_base>/<folder>/<basename(sprite_name)>``.
+    The environment split (dev vs. prd) is handled by the docker volume
+    mount, so this code path doesn't bake in the env name.
+
+    DB rows often store ``sprite_name`` without an extension (e.g.
+    ``"icon_itm802"`` referring to ``icon_itm802.png``).  Try the raw
+    name first, then each common image extension.
+    """
+    safe_name = os.path.basename(sprite_name)
+    base_dir = os.path.join(settings.shop_assets_base, folder)
+    candidates = [os.path.join(base_dir, safe_name)]
+    if "." not in safe_name:
+        candidates.extend(
+            os.path.join(base_dir, safe_name + ext) for ext in _SPRITE_EXTENSIONS
+        )
+    return candidates
+
+
+def _shop_sprite_path(folder: str, sprite_name: str) -> str:
+    """First candidate path for diagnostic display (no extension fixup)."""
+    return _shop_sprite_candidates(folder, sprite_name)[0]
+
+
+# ---- Background-specific helpers ------------------------------------------
+# A background's ``sprite_name`` is the base stem (e.g. ``"bg_ver1"``).  Up
+# to six files may exist alongside each other:
+#
+#   <base>_day.png  <base>_dusk.png  <base>_night.png
+#   <base>_day_high.png  <base>_dusk_high.png  <base>_night_high.png
+#
+# Only the base name is stored on the row; the server inspects the asset
+# folder to decide what the cosmetic actually supports and what variant
+# to serve for the shop preview.
+
+_BG_TIME_VARIANTS = ("day", "dusk", "night")
+
+
+def _bg_dir() -> str:
+    return os.path.join(settings.shop_assets_base, "backgrounds")
+
+
+def _bg_variant_path(base: str, time: str | None = None, hd: bool = False) -> str:
+    """Build a background variant path for a given base name."""
+    name = os.path.basename(base)
+    parts = [name]
+    if time:
+        parts.append(time)
+    if hd:
+        parts.append("high")
+    return os.path.join(_bg_dir(), "_".join(parts) + ".png")
+
+
+def _bg_variant_exists(base: str, time: str | None = None, hd: bool = False) -> bool:
+    return os.path.isfile(_bg_variant_path(base, time, hd))
+
+
+def detect_background_flags(sprite_name: str) -> tuple[bool, bool]:
+    """Return ``(day_night, high_res)`` for a background by inspecting disk.
+
+    ``day_night`` requires at least the ``_day`` AND ``_night`` files
+    (dusk is optional — pure day/night swap is enough).  ``high_res``
+    requires any ``_*_high`` sibling.  Falls back to ``(False, False)``
+    if the base file doesn't exist at all.
+    """
+    if not sprite_name:
+        return (False, False)
+
+    has_day = _bg_variant_exists(sprite_name, "day")
+    has_night = _bg_variant_exists(sprite_name, "night")
+    day_night = has_day and has_night
+
+    high_res = any(
+        _bg_variant_exists(sprite_name, t, hd=True) for t in _BG_TIME_VARIANTS
+    )
+    if not high_res:
+        # Bare ``<base>_high.png`` (no time variant) also counts
+        high_res = os.path.isfile(_bg_variant_path(sprite_name, time=None, hd=True))
+
+    return (day_night, high_res)
+
+
+def background_preview_candidates(sprite_name: str) -> list[str]:
+    """Ordered paths the sprite endpoint should try for a background preview.
+
+    Picks the highest-quality day variant available, then falls back to
+    other times / non-HD, then to a plain ``<base>.png`` if nothing else
+    matches.  Used by the shop preview only; in-game time-of-day swaps
+    are handled client-side once the cosmetic is purchased + downloaded.
+    """
+    if not sprite_name:
+        return []
+    order: list[str] = []
+    # HD first
+    for t in _BG_TIME_VARIANTS:
+        order.append(_bg_variant_path(sprite_name, t, hd=True))
+    # Standard res
+    for t in _BG_TIME_VARIANTS:
+        order.append(_bg_variant_path(sprite_name, t, hd=False))
+    # Bare fallbacks
+    order.append(_bg_variant_path(sprite_name, time=None, hd=True))
+    order.append(_bg_variant_path(sprite_name, time=None, hd=False))
+    # Plus the generic-extension fallback for completely non-standard names
+    order.extend(_shop_sprite_candidates("backgrounds", sprite_name))
+    # De-dupe while preserving order
+    seen = set()
+    deduped = []
+    for p in order:
+        if p not in seen:
+            seen.add(p)
+            deduped.append(p)
+    return deduped
+
+
+@router.get("/{kind}/{item_id}/sprite")
+async def get_shop_sprite(
+    kind: str,
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve the sprite PNG for a shop entry.
+
+    Lookup order:
+        1. ``<shop_assets_base>/<environment>/<kind_folder>/<sprite_name>``
+           on disk (the per-environment asset tree mounted from the
+           share — admins drop files there and they are served live).
+        2. ``json_data['sprite_b64']`` blob inline in the DB (fallback
+           for one-off entries that didn't ship with a file).
+
+    Returns 404 (with a diagnostic ``detail`` string) if neither produces
+    bytes — useful for debugging admin setup.
+    """
+    spec = _SPRITE_KIND_LOADERS.get(kind)
+    if spec is None:
+        raise HTTPException(status_code=404, detail="Unknown sprite kind")
+    loader, folder = spec
+
+    shop_service = get_shop_service(db)
+    entry = await loader(shop_service, item_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"{kind} {item_id} not found")
+
+    sprite_name = getattr(entry, "sprite_name", None) or ""
+
+    # Backgrounds have a richer file layout (<base>_day[_high].png etc.).
+    # Prefer the HD-day variant so the shop preview shows the asset at
+    # full quality; fall back through the standard variants and finally
+    # the generic-extension probe.
+    if kind == "cosmetic" and sprite_name and (
+        getattr(entry, "cosmetic_type", None)
+        and (entry.cosmetic_type.value if hasattr(entry.cosmetic_type, "value") else entry.cosmetic_type) == "background"
+    ):
+        sprite_paths = background_preview_candidates(sprite_name)
+    else:
+        sprite_paths = _shop_sprite_candidates(folder, sprite_name) if sprite_name else []
+
+    # 1) Filesystem (per-environment asset tree)
+    for path in sprite_paths:
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "rb") as f:
+                return Response(content=f.read(), media_type="image/png")
+        except Exception as exc:
+            print(f"[shop] {kind} {item_id} read failed at {path}: {exc}")
+
+    # 2) Inline blob fallback
+    json_data = getattr(entry, "json_data", None) or {}
+    b64 = json_data.get("sprite_b64") if isinstance(json_data, dict) else None
+    if b64:
+        try:
+            return Response(content=base64.b64decode(b64), media_type="image/png")
+        except Exception as exc:
+            print(f"[shop] {kind} {item_id} sprite_b64 decode failed: {exc}")
+
+    # Build a full report of what was tried.  Listing the parent
+    # directory makes typos / case-mismatch jump out immediately.
+    if sprite_name:
+        candidates = [os.path.abspath(p) for p in sprite_paths]
+        parent_dir = os.path.dirname(candidates[0]) if candidates else "(n/a)"
+        try:
+            available = sorted(os.listdir(parent_dir))[:30]
+        except Exception as exc:
+            available = [f"<could not list {parent_dir}: {exc}>"]
+    else:
+        candidates = ["(n/a — sprite_name empty)"]
+        parent_dir = "(n/a)"
+        available = []
+
+    print(
+        f"[shop:v2] {kind} {item_id} sprite miss: "
+        f"sprite_name={sprite_name!r} folder={folder!r} "
+        f"tried={candidates} dir_listing[:30]={available}"
+    )
+    raise HTTPException(
+        status_code=404,
+        detail=(
+            f"No sprite for {kind}/{item_id}. "
+            f"sprite_name={sprite_name or '(empty)'}, "
+            f"tried={candidates}"
+        ),
+    )
 
 
 # ============================================================================

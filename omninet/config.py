@@ -51,6 +51,17 @@ class Settings(BaseSettings):
     # File Storage
     modules_storage_path: str = "./storage/modules"
     logs_storage_path: str = "./storage/logs"
+    # Shop sprite assets — root of the asset tree served by
+    # ``GET /shop/{kind}/{id}/sprite``.  Sprites are looked up at
+    # ``<shop_assets_base>/<kind_folder>/<sprite_name>`` where kind_folder
+    # is "items" / "backgrounds" / "gameplay" / "specials".
+    #
+    # In the deployed compose the env split lives in the volume mount
+    # (``./dev:/app/storage`` for staging, ``./prd:/app/storage`` for
+    # production), so both environments share the same in-container path.
+    # The host-side equivalents are
+    # ``/mnt/user/appdata/omninet/dev`` and ``/mnt/user/appdata/omninet/prd``.
+    shop_assets_base: str = "/app/storage"
     # Shop sprite assets (item icons, cosmetic previews, etc).  Each
     # item / cosmetic / gameplay entry references a filename via
     # ``sprite_name``; the file must live in this folder for the
@@ -76,9 +87,6 @@ class Settings(BaseSettings):
     reward_coins_evolution: int = 2
     reward_coins_new_pet: int = 3
     reward_coins_adventure: int = 10
-
-    # HMAC signing secret for reward claims (must match game client constant)
-    reward_signing_secret: str = "change-me-reward-secret"
 
     # Arena season coin rewards
     arena_participation_coins: int = 1   # per battle (any outcome)

@@ -1,9 +1,7 @@
 """
 Reward endpoints — in-game coin event claims.
 """
-from typing import Annotated
-
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from omninet.routes.deps import CurrentUser, DbSession
@@ -15,8 +13,6 @@ router = APIRouter(prefix="/rewards", tags=["rewards"])
 class RewardClaimRequest(BaseModel):
     event_type: str
     idempotency_key: str
-    timestamp: int
-    signature: str
 
 
 class RewardClaimResponse(BaseModel):
@@ -31,26 +27,19 @@ async def claim_reward(
     body: RewardClaimRequest,
     current_user: CurrentUser,
     db: DbSession,
-    x_device_key: Annotated[str | None, Header()] = None,
 ) -> RewardClaimResponse:
     """
     Grant coins for an in-game event.
 
-    The request must carry a valid HMAC-SHA256 signature computed from
-    the device key, event type, idempotency key and timestamp.  The server
-    rejects stale timestamps (>5 min) and duplicate idempotency keys.
+    The client sends a stable idempotency key derived from the event context
+    (module name, pet name, timestamp, etc.).  The server rejects any key that
+    has already been used by this player, preventing duplicate rewards.
     """
-    if not x_device_key:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Device key required")
-
     service = RewardService(db)
     success, coins, message = await service.claim_reward(
         user=current_user,
-        device_key=x_device_key,
         event_type=body.event_type,
         idempotency_key=body.idempotency_key,
-        timestamp=body.timestamp,
-        signature=body.signature,
     )
 
     if not success:

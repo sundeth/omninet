@@ -34,8 +34,13 @@ async def list_my_teams(
         include_unclaimed_rewards=True,
     )
 
-    return [
-        TeamListResponse(
+    items = []
+    for t in teams:
+        try:
+            rank = await team_service.get_team_rank(t)
+        except Exception:
+            rank = None
+        items.append(TeamListResponse(
             id=t.id,
             name=t.name,
             score=t.score,
@@ -44,11 +49,14 @@ async def list_my_teams(
             draws=t.draws,
             pet_count=len(t.pets),
             reward_claimed=t.reward_claimed,
+            rewarded_coins=t.rewarded_coins,
+            is_active=t.is_active,
+            season_id=t.season_id,
             season_name=t.season.name if t.season else None,
+            rank=rank,
             created_at=t.created_at,
-        )
-        for t in teams
-    ]
+        ))
+    return items
 
 
 @router.get("/current", response_model=TeamResponse)

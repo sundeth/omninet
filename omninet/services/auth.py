@@ -63,7 +63,7 @@ class AuthService:
             email=email,
             code=code,
             expiry_minutes=settings.verification_code_expiry_minutes,
-            metadata={"user_id": str(user.id), "action": "register"},
+            log_metadata={"user_id": str(user.id), "action": "register"},
         )
 
         # Send verification email
@@ -158,7 +158,7 @@ class AuthService:
             email=email,
             code=code,
             expiry_minutes=settings.verification_code_expiry_minutes,
-            metadata={"user_id": str(user.id), "action": "login"},
+            log_metadata={"user_id": str(user.id), "action": "login"},
         )
 
         # Send verification email
@@ -283,7 +283,7 @@ class AuthService:
             email=email,
             code=code,
             expiry_minutes=settings.verification_code_expiry_minutes,
-            metadata={"user_id": str(user.id), "action": "resend"},
+            log_metadata={"user_id": str(user.id), "action": "resend"},
         )
 
         # Send email
@@ -311,7 +311,7 @@ class AuthService:
             email=email,
             code=code,
             expiry_minutes=settings.verification_code_expiry_minutes,
-            metadata={"user_id": str(user.id), "action": "password_reset"},
+            log_metadata={"user_id": str(user.id), "action": "password_reset"},
         )
 
         # Send email
