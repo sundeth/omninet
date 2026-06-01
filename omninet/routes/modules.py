@@ -301,7 +301,12 @@ async def download_module(
     return StreamingResponse(
         BytesIO(data),
         media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}",
+            # Explicit length so the client can render real download progress
+            # (StreamingResponse doesn't set Content-Length on its own).
+            "Content-Length": str(len(data)),
+        },
     )
 
 
