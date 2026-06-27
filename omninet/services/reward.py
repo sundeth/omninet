@@ -17,15 +17,18 @@ from omninet.config import settings
 from omninet.models.reward import RewardClaim
 from omninet.models.user import User
 
-VALID_EVENT_TYPES = frozenset({"unlock", "evolution", "new_pet", "adventure"})
+VALID_EVENT_TYPES = frozenset({
+    "unlock", "evolution", "new_pet", "adventure", "area_clear",
+})
 
 
 def _coin_value(event_type: str) -> int:
     return {
-        "unlock":    settings.reward_coins_unlock,
-        "evolution": settings.reward_coins_evolution,
-        "new_pet":   settings.reward_coins_new_pet,
-        "adventure": settings.reward_coins_adventure,
+        "unlock":     settings.reward_coins_unlock,
+        "evolution":  settings.reward_coins_evolution,
+        "new_pet":    settings.reward_coins_new_pet,
+        "adventure":  settings.reward_coins_adventure,
+        "area_clear": settings.reward_coins_area_clear,
     }[event_type]
 
 

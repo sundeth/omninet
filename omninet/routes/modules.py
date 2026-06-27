@@ -1,10 +1,11 @@
 """
 Module management routes.
 """
+import hashlib
 from io import BytesIO
 from uuid import UUID
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from omninet.models.module import ModuleStatus
@@ -171,10 +172,16 @@ async def publish_module(
     current_user: CurrentUser,
     db: DbSession,
     file: UploadFile = File(...),
+    sha256: str | None = Form(None),
 ):
     """
     Publish or update a module.
     Upload a zip file containing the module data with a module.json file.
+
+    The client may include a ``sha256`` form field holding the lowercase
+    hex SHA-256 of the uploaded bytes.  When present, it is verified before
+    the module is stored so a corrupted transfer is rejected rather than
+    published to players.
     """
     if not file.filename or not file.filename.endswith(".zip"):
         raise HTTPException(
@@ -189,6 +196,20 @@ async def publish_module(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File too large (max 100MB)",
         )
+
+    # Integrity check: if the client sent a hash, the bytes we received must
+    # match it exactly.  A mismatch means the upload was corrupted in transit.
+    if sha256:
+        actual_hash = hashlib.sha256(content).hexdigest()
+        if actual_hash.lower() != sha256.strip().lower():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Upload integrity check failed (hash mismatch). "
+                    "The module file was corrupted during transfer; "
+                    "please try publishing again."
+                ),
+            )
 
     module_service = ModuleService(db)
     success, message, module = await module_service.publish_module(
