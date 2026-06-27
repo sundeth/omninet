@@ -86,7 +86,8 @@ class Settings(BaseSettings):
     reward_coins_unlock: int = 5
     reward_coins_evolution: int = 2
     reward_coins_new_pet: int = 3
-    reward_coins_adventure: int = 10
+    reward_coins_adventure: int = 10   # finishing a module's whole adventure
+    reward_coins_area_clear: int = 1   # clearing one adventure area (boss)
 
     # Arena season coin rewards
     arena_participation_coins: int = 1   # per battle (any outcome)
