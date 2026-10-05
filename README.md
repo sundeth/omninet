@@ -8,8 +8,8 @@ Omninet is a FastAPI-based backend server that handles:
 
 - **User Authentication**: Account creation, login, email verification, device linking
 - **Module Management**: Publishing, updating, downloading game modules
-- **Battle System**: Team creation, matchmaking, battle simulation
-- **Seasons**: Themed seasons with restrictions on pets (stage, attribute, module)
+- **Arena**: Team creation, matchmaking and battles fought by Omnipet's own engine on a server-held copy of Omnipet and its modules
+- **Seasons**: Timed seasons with restrictions on pets (stage, attribute, module) and per-season battle settings
 - **Activity Logging**: Full history tracking for auditing
 
 ## License
@@ -120,16 +120,16 @@ Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4
 | GET | `` | List user's teams |
 | GET | `/current` | Get current season team |
 | GET | `/{id}` | Get team details |
-| POST | `` | Create new team |
+| POST | `` | Create new team (3 Digimon: identity + care status) |
 | DELETE | `/{id}` | Deactivate team |
-| POST | `/claim-rewards` | Claim all pending rewards |
+| POST | `/claim-rewards` | Claim the results of finished seasons |
 
 ### Battles (`/api/v1/battles`)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/{id}` | Get battle details with log |
-| GET | `/team/{id}/history` | Get team's battle history |
+| GET | `/{id}` | Get battle details with replay log |
+| GET | `/team/{id}/history` | Get team's attacks and defences |
 | POST | `/find/{team_id}` | Find and execute a battle |
 
 ### Seasons (`/api/v1/seasons`)
@@ -137,9 +137,21 @@ Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `` | List seasons |
-| GET | `/current` | Get current active season |
+| GET | `/current` | Get the running season (404 between seasons) |
 | GET | `/{id}` | Get season details |
-| POST | `` | Create season (admin only) |
+| POST | `` | Schedule a season (admin only) |
+
+### Arena (`/api/v1`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/arena/modules` | Modules the arena can field this season |
+| GET | `/admin/arena/status` | Season, runtime and queued updates (admin) |
+| POST | `/admin/arena/updates/omnipet` | Queue an Omnipet build zip (admin) |
+| POST | `/admin/arena/updates/sync-published` | Queue every published module (admin) |
+| POST | `/admin/arena/season/end` | End the running season now (admin) |
+| POST | `/admin/arena/tick` | Run the season clock once (admin) |
+| GET/POST | `/dev/arena/...` | Development tools: status, season start/end, runtime apply, dummy teams, bot battles (ENVIRONMENT=dev only; admin `X-Device-Key` or `X-Dev-Token`) |
 
 ### Admin (`/api/v1/admin`)
 
@@ -150,23 +162,30 @@ Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4
 | POST | `/users/{id}/coins` | Adjust user coins |
 | POST | `/modules/{id}/ban` | Ban module |
 | POST | `/modules/{id}/unban` | Unban module |
-| POST | `/seasons/update-statuses` | Update season statuses |
+| POST | `/seasons/update-statuses` | Run the arena season clock once |
 | GET | `/logs` | Get activity logs |
 
-## Season Restrictions
+## Arena
+
+Battles are fought by Omnipet's arena engine (`python -m battle.arena`, OMNIPET rules with the DMX default patterns), run from a copy of Omnipet's source and module JSON that the server keeps under `ARENA_STORAGE_PATH` (default `storage/arena`).  A copy never changes during a season: Omnipet builds dropped into `updates/` and module updates (queued automatically when a module is published) are installed only when a season ends.  Build a runtime zip from an Omnipet checkout with `python utilities/claude/build_arena_runtime.py`; the details are in Omnipet's `utilities/claude/docs/arena.md` and `omninet/arena/runtime.py`.
+
+A team upload names each Digimon (module, name, version) and carries its care status.  Stage, attribute, power, HP and attacks come from the server's module data; a module the server does not have is refused.
+
+### Season Restrictions
 
 Seasons can restrict which pets are allowed to participate based on:
 
-- **Stage**: Only pets of certain evolution stages (1-7)
-- **Attribute**: Only pets with specific attributes (Vaccine, Data, Virus, Free)
+- **Stage**: Only pets of certain evolution stages (0-7)
+- **Attribute**: Only pets with specific attributes (Vaccine, Data, Virus, Free; or Va/Da/Vi)
 - **Module**: Only pets from specific game modules
 
-Example season restriction:
+A season's `config` overrides the battle settings: `attacks_per_day`, `charge` (0-3 or `"random"`), `win_score`, `loss_score`, `draw_score`, `participation_coins`.
+
+Example season:
 ```json
 {
-  "allowed_stages": [4, 5, 6],
-  "allowed_attributes": ["Vaccine", "Data"],
-  "allowed_modules": ["DMX", "DM20"]
+  "restrictions": {"allowed_stages": [4, 5, 6], "allowed_attributes": ["Vaccine", "Data"]},
+  "config": {"attacks_per_day": 20, "charge": "random"}
 }
 ```
 
@@ -198,6 +217,12 @@ Example season restriction:
 | `REDIS_URL` | Redis connection string | redis://localhost:6379/0 |
 | `SMTP_HOST` | SMTP server host | smtp.gmail.com |
 | `SMTP_PORT` | SMTP server port | 587 |
+| `ARENA_STORAGE_PATH` | Arena runtime store (Omnipet copies, update drop folder) | ./storage/arena |
+| `ARENA_SEASON_LENGTH_HOURS` | Length of automatic seasons | 168 |
+| `ARENA_SEASON_ANCHOR` | Start of the automatic season schedule | 2026-01-04T00:00:00+00:00 |
+| `ARENA_SEASON_RESTRICTIONS` / `ARENA_SEASON_CONFIG` | JSON forced onto automatic seasons | (empty) |
+| `ARENA_TICK_SECONDS` | Season clock interval | 60 |
+| `ARENA_DEV_BOTS` | Dev only: dummy players attack on a timer | false |
 | `SMTP_USER` | SMTP username | - |
 | `SMTP_PASSWORD` | SMTP password | - |
 | `MAX_DAILY_BATTLES` | Max battles per team per day | 10 |

@@ -165,8 +165,15 @@ class ModuleService:
         version: str | None = None,
         description: str | None = None,
         category_name: str | None = None,
+        name: str | None = None,
     ) -> GameModule:
         """Update module metadata."""
+        if name and name != module.name:
+            # Modules are matched case-insensitively (see get_by_name), so a
+            # republish with corrected capitalisation lands on this record
+            # rather than creating a second one -- but the stored name was
+            # never refreshed, which is how "PENC" stayed listed as "PenC".
+            module.name = name
         if version:
             module.version = version
         if description is not None:
@@ -243,6 +250,7 @@ class ModuleService:
                     version=version,
                     description=description,
                     category_name=category_name,
+                    name=name,
                 )
 
             # Save zip file
@@ -258,6 +266,13 @@ class ModuleService:
             module.status = ModuleStatus.PUBLISHED
 
             await self.db.flush()
+
+            # The arena picks the update up when the current season ends.
+            try:
+                from omninet.arena.runtime import ArenaRuntime
+                ArenaRuntime().queue_module(name, file_path)
+            except Exception as exc:  # noqa: BLE001 - publishing still succeeded
+                print(f"[modules] could not queue {name} for the arena: {exc}")
 
             # Log activity
             await self.logging_service.log_activity(

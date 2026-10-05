@@ -46,8 +46,14 @@ class BattleResult(enum.Enum):
 
 class Season(Base):
     """
-    Season configuration for themed battles.
-    Seasons can restrict which pets can participate based on stage, attribute, or module.
+    An arena season.
+
+    A season runs from ``starts_at`` to ``ends_at`` (``start_date`` /
+    ``end_date`` are their dates, kept for older clients).  Its
+    ``restrictions`` limit which Digimon may join (checked by the arena
+    engine on the server's module data); its ``config`` overrides the
+    server's battle settings (see omninet/arena/rules.py).  Battles run on
+    the Omnipet runtime snapshot named by ``runtime_version``.
     """
 
     __tablename__ = "seasons"
@@ -59,6 +65,8 @@ class Season(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[SeasonStatus] = mapped_column(
         Enum(SeasonStatus, values_callable=lambda obj: [e.value for e in obj], create_type=False),
         default=SeasonStatus.UPCOMING,
@@ -66,7 +74,18 @@ class Season(Base):
 
     # Season restrictions (JSON for flexibility)
     # Example: {"allowed_stages": [3, 4, 5], "allowed_attributes": ["Vaccine", "Data"], "allowed_modules": ["DMX", "DM20"]}
+    # Attributes may be written as names or as the Va/Da/Vi codes; "Free"
+    # matches Digimon with no attribute.
     restrictions: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # Battle settings for this season, e.g. {"attacks_per_day": 20, "charge": "random"}
+    config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # Omnipet runtime snapshot the season fights on
+    runtime_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    # Top-3 prizes credited (set once, at close)
+    prizes_paid: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Reward multiplier for this season
     reward_multiplier: Mapped[float] = mapped_column(default=1.0)
@@ -83,29 +102,7 @@ class Season(Base):
     teams: Mapped[list["GameTeam"]] = relationship("GameTeam", back_populates="season")
 
     def __repr__(self) -> str:
-        return f"<Season(name={self.name}, start={self.start_date}, end={self.end_date})>"
-
-    def is_pet_allowed(self, pet: "GamePet") -> bool:
-        """Check if a pet is allowed in this season based on restrictions."""
-        if not self.restrictions:
-            return True
-
-        # Check stage restriction
-        if "allowed_stages" in self.restrictions:
-            if pet.stage not in self.restrictions["allowed_stages"]:
-                return False
-
-        # Check attribute restriction
-        if "allowed_attributes" in self.restrictions:
-            if pet.attribute not in self.restrictions["allowed_attributes"]:
-                return False
-
-        # Check module restriction
-        if "allowed_modules" in self.restrictions:
-            if pet.module_name not in self.restrictions["allowed_modules"]:
-                return False
-
-        return True
+        return f"<Season(name={self.name}, starts={self.starts_at}, ends={self.ends_at})>"
 
 
 class GameTeam(Base):
@@ -130,6 +127,10 @@ class GameTeam(Base):
     rewarded_coins: Mapped[int] = mapped_column(Integer, default=0)
     reward_claimed: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Rank when the season closed (None while it runs)
+    final_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Development dummy player's team
+    is_dummy: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -164,7 +165,13 @@ class GameTeam(Base):
 
 
 class GamePet(Base):
-    """Pet uploaded by users for online battles."""
+    """A Digimon on an arena team.
+
+    The stat columns hold what the arena engine computed from the server's
+    module data and the uploaded care status -- never values the client
+    sent.  ``extra_data`` keeps ``slot`` (team order), ``arena_entry`` (the
+    engine's battle entry) and ``upload`` (what the client sent).
+    """
 
     __tablename__ = "game_pets"
 
@@ -238,7 +245,10 @@ class GameBattle(Base):
         nullable=False,
     )
 
-    # Battle log (JSON containing the full battle replay data)
+    # Battle log (JSON containing the full battle replay data).  team1 is
+    # always the attacker.  Version 2 logs carry the engine's result, both
+    # teams' battle entries, the starting HP, seed and rules (see
+    # BattleService._execute_battle); the game replays them.
     battle_log: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Battle metadata

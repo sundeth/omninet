@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
+from omninet.models.battle import GameTeam
 from omninet.routes.deps import CurrentUser, DbSession
 from omninet.schemas.battle import (
     ClaimRewardResponse,
@@ -15,9 +16,59 @@ from omninet.schemas.battle import (
 )
 from omninet.schemas.common import MessageResponse
 from omninet.services.battle import BattleService
-from omninet.services.team import TeamService
+from omninet.services.team import TeamService, team_season_ends_at
 
 router = APIRouter(prefix="/teams", tags=["Teams"])
+
+
+def _team_response(
+    team: GameTeam,
+    rank: int | None = None,
+    daily_remaining: int | None = None,
+) -> TeamResponse:
+    pets = sorted(team.pets, key=lambda p: (p.extra_data or {}).get("slot", 0))
+    return TeamResponse(
+        id=team.id,
+        name=team.name,
+        score=team.score,
+        wins=team.wins,
+        losses=team.losses,
+        draws=team.draws,
+        rewarded_coins=team.rewarded_coins,
+        reward_claimed=team.reward_claimed,
+        is_active=team.is_active,
+        season_id=team.season_id,
+        season_name=team.season.name if team.season else None,
+        season_status=team.season.status if team.season else None,
+        season_ends_at=team_season_ends_at(team),
+        final_rank=team.final_rank,
+        pets=[
+            PetResponse(
+                id=p.id,
+                name=p.name,
+                module_name=p.module_name,
+                module_version=p.module_version,
+                pet_version=p.pet_version,
+                stage=p.stage,
+                level=p.level,
+                atk_main=p.atk_main,
+                atk_alt=p.atk_alt,
+                atk_alt2=p.atk_alt2,
+                power=p.power,
+                attribute=p.attribute,
+                hp=p.hp,
+                star=p.star,
+                critical_turn=p.critical_turn,
+                extra_data=p.extra_data,
+                created_at=p.created_at,
+            )
+            for p in pets
+        ],
+        created_at=team.created_at,
+        updated_at=team.updated_at,
+        rank=rank,
+        daily_battles_remaining=daily_remaining,
+    )
 
 
 @router.get("", response_model=list[TeamListResponse])
@@ -53,6 +104,9 @@ async def list_my_teams(
             is_active=t.is_active,
             season_id=t.season_id,
             season_name=t.season.name if t.season else None,
+            season_status=t.season.status if t.season else None,
+            season_ends_at=team_season_ends_at(t),
+            final_rank=t.final_rank,
             rank=rank,
             created_at=t.created_at,
         ))
@@ -66,8 +120,8 @@ async def get_current_team(
 ):
     """Get the current user's active team for this season.
 
-    Includes the team's current rank and daily-battles-remaining for the
-    arena hub view.
+    Includes the team's current rank and attacks left today for the arena
+    hub view.
     """
     team_service = TeamService(db)
     team = await team_service.get_user_current_team(current_user.id)
@@ -79,47 +133,8 @@ async def get_current_team(
         )
 
     rank = await team_service.get_team_rank(team)
-    _, daily_remaining = await BattleService(db).can_battle(team.id)
-
-    return TeamResponse(
-        id=team.id,
-        name=team.name,
-        score=team.score,
-        wins=team.wins,
-        losses=team.losses,
-        draws=team.draws,
-        rewarded_coins=team.rewarded_coins,
-        reward_claimed=team.reward_claimed,
-        is_active=team.is_active,
-        season_id=team.season_id,
-        season_name=team.season.name if team.season else None,
-        pets=[
-            PetResponse(
-                id=p.id,
-                name=p.name,
-                module_name=p.module_name,
-                module_version=p.module_version,
-                pet_version=p.pet_version,
-                stage=p.stage,
-                level=p.level,
-                atk_main=p.atk_main,
-                atk_alt=p.atk_alt,
-                atk_alt2=p.atk_alt2,
-                power=p.power,
-                attribute=p.attribute,
-                hp=p.hp,
-                star=p.star,
-                critical_turn=p.critical_turn,
-                extra_data=p.extra_data,
-                created_at=p.created_at,
-            )
-            for p in team.pets
-        ],
-        created_at=team.created_at,
-        updated_at=team.updated_at,
-        rank=rank,
-        daily_battles_remaining=daily_remaining,
-    )
+    _, daily_remaining = await BattleService(db).can_battle(team)
+    return _team_response(team, rank, daily_remaining)
 
 
 @router.get("/{team_id}", response_model=TeamResponse)
@@ -144,43 +159,7 @@ async def get_team(
             detail="You don't own this team",
         )
 
-    return TeamResponse(
-        id=team.id,
-        name=team.name,
-        score=team.score,
-        wins=team.wins,
-        losses=team.losses,
-        draws=team.draws,
-        rewarded_coins=team.rewarded_coins,
-        reward_claimed=team.reward_claimed,
-        is_active=team.is_active,
-        season_id=team.season_id,
-        season_name=team.season.name if team.season else None,
-        pets=[
-            PetResponse(
-                id=p.id,
-                name=p.name,
-                module_name=p.module_name,
-                module_version=p.module_version,
-                pet_version=p.pet_version,
-                stage=p.stage,
-                level=p.level,
-                atk_main=p.atk_main,
-                atk_alt=p.atk_alt,
-                atk_alt2=p.atk_alt2,
-                power=p.power,
-                attribute=p.attribute,
-                hp=p.hp,
-                star=p.star,
-                critical_turn=p.critical_turn,
-                extra_data=p.extra_data,
-                created_at=p.created_at,
-            )
-            for p in team.pets
-        ],
-        created_at=team.created_at,
-        updated_at=team.updated_at,
-    )
+    return _team_response(team, await team_service.get_team_rank(team))
 
 
 @router.post("", response_model=TeamResponse)
@@ -189,10 +168,13 @@ async def create_team(
     current_user: CurrentUser,
     db: DbSession,
 ):
-    """Create a new team for the current season."""
+    """Create a new team for the current season.
+
+    The server rebuilds every Digimon from its own module data; the
+    response's ``season_ends_at`` is when the game releases the team's pets.
+    """
     team_service = TeamService(db)
 
-    # Convert pets to dictionaries
     pets_data = [pet.model_dump() for pet in data.pets]
 
     success, message, team = await team_service.create_team(
@@ -207,43 +189,9 @@ async def create_team(
             detail=message,
         )
 
-    return TeamResponse(
-        id=team.id,
-        name=team.name,
-        score=team.score,
-        wins=team.wins,
-        losses=team.losses,
-        draws=team.draws,
-        rewarded_coins=team.rewarded_coins,
-        reward_claimed=team.reward_claimed,
-        is_active=team.is_active,
-        season_id=team.season_id,
-        season_name=team.season.name if team.season else None,
-        pets=[
-            PetResponse(
-                id=p.id,
-                name=p.name,
-                module_name=p.module_name,
-                module_version=p.module_version,
-                pet_version=p.pet_version,
-                stage=p.stage,
-                level=p.level,
-                atk_main=p.atk_main,
-                atk_alt=p.atk_alt,
-                atk_alt2=p.atk_alt2,
-                power=p.power,
-                attribute=p.attribute,
-                hp=p.hp,
-                star=p.star,
-                critical_turn=p.critical_turn,
-                extra_data=p.extra_data,
-                created_at=p.created_at,
-            )
-            for p in team.pets
-        ],
-        created_at=team.created_at,
-        updated_at=team.updated_at,
-    )
+    rank = await team_service.get_team_rank(team)
+    _, daily_remaining = await BattleService(db).can_battle(team)
+    return _team_response(team, rank, daily_remaining)
 
 
 @router.delete("/{team_id}", response_model=MessageResponse)
@@ -270,7 +218,7 @@ async def claim_rewards(
     current_user: CurrentUser,
     db: DbSession,
 ):
-    """Claim all pending rewards."""
+    """Claim the results (and coins) of every finished season."""
     team_service = TeamService(db)
     coins_claimed, new_balance, teams_processed = await team_service.claim_rewards(
         current_user

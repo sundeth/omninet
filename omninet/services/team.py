@@ -1,19 +1,29 @@
 """
-Team service for managing game teams.
+Team service for managing arena teams.
 """
-from datetime import date
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from omninet.arena import engine, rules
 from omninet.config import settings
-from omninet.models.battle import GamePet, GameTeam
+from omninet.models.battle import GameBattle, GamePet, GameTeam, Season, SeasonStatus
 from omninet.models.logs import ActivityType
 from omninet.models.user import User
 from omninet.services.logging import LoggingService
-from omninet.services.season import SeasonService
+from omninet.services.season import SeasonService, utcnow
+
+#: Every arena team fields exactly this many Digimon (the engine's TEAM_SIZE).
+TEAM_SIZE = 3
+
+
+def team_entries(team: GameTeam) -> list[dict]:
+    """The engine battle entries of *team*'s pets, in team order."""
+    pets = sorted(team.pets, key=lambda p: (p.extra_data or {}).get("slot", 0))
+    return [(p.extra_data or {}).get("arena_entry") for p in pets]
 
 
 class TeamService:
@@ -41,10 +51,12 @@ class TeamService:
     async def get_team_rank(self, team: GameTeam) -> int:
         """Compute a team's 1-indexed rank within its season.
 
-        Rank is by score desc, with ties broken by wins desc then created_at asc.
-        Returns 1 for the leading team.  Inactive teams or teams without a
-        season return 0.
+        Rank is by score desc, with ties broken by wins desc then created_at
+        asc.  A finished season answers with the rank frozen at its close.
+        Inactive teams or teams without a season return 0.
         """
+        if team and team.final_rank:
+            return team.final_rank
         if not team or not team.season_id or not team.is_active:
             return 0
         # Count teams strictly ahead of this one
@@ -88,22 +100,19 @@ class TeamService:
         )
 
         if not include_past_seasons:
-            # Get current season
             current_season = await self.season_service.get_current_season()
-            if current_season:
-                if include_unclaimed_rewards:
-                    # Include teams from current season OR teams with unclaimed rewards
-                    query = query.where(
-                        or_(
-                            GameTeam.season_id == current_season.id,
-                            and_(
-                                GameTeam.reward_claimed.is_(False),
-                                GameTeam.rewarded_coins > 0,
-                            ),
-                        )
+            current_id = current_season.id if current_season else None
+            if include_unclaimed_rewards:
+                # Teams from the current season OR finished teams whose
+                # results were not claimed yet
+                query = query.where(
+                    or_(
+                        GameTeam.season_id == current_id,
+                        GameTeam.reward_claimed.is_(False),
                     )
-                else:
-                    query = query.where(GameTeam.season_id == current_season.id)
+                )
+            else:
+                query = query.where(GameTeam.season_id == current_id)
 
         query = query.order_by(GameTeam.created_at.desc())
         result = await self.db.execute(query)
@@ -111,7 +120,9 @@ class TeamService:
 
     async def get_user_current_team(self, user_id: UUID) -> GameTeam | None:
         """Get user's team for the current season."""
-        current_season = await self.season_service.get_or_create_weekly_season()
+        current_season = await self.season_service.get_current_season()
+        if current_season is None:
+            return None
 
         query = (
             select(GameTeam)
@@ -124,16 +135,14 @@ class TeamService:
             .where(GameTeam.is_active.is_(True))
         )
         result = await self.db.execute(query)
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
-    async def count_user_current_teams(self, user_id: UUID) -> int:
-        """Count user's teams in current season."""
-        current_season = await self.season_service.get_or_create_weekly_season()
-
+    async def count_user_current_teams(self, user_id: UUID, season: Season) -> int:
+        """Count user's teams in *season*."""
         query = (
             select(func.count(GameTeam.id))
             .where(GameTeam.owner_id == user_id)
-            .where(GameTeam.season_id == current_season.id)
+            .where(GameTeam.season_id == season.id)
             .where(GameTeam.is_active.is_(True))
         )
         result = await self.db.execute(query)
@@ -144,76 +153,95 @@ class TeamService:
         user: User,
         pets_data: list[dict],
         team_name: str | None = None,
+        is_dummy: bool = False,
     ) -> tuple[bool, str, GameTeam | None]:
         """
         Create a new team for the current season.
         Returns (success, message, team).
+
+        Each upload names a Digimon (module_name, name, pet_version) and
+        carries its care ``status``.  The arena engine rebuilds it from the
+        server's own module data -- refusing modules the server does not
+        have -- and checks the season's restrictions.
         """
-        # Check team limit
-        current_teams = await self.count_user_current_teams(user.id)
+        season = await self.season_service.get_current_season()
+        if season is None:
+            return False, "No arena season is running", None
+
+        current_teams = await self.count_user_current_teams(user.id, season)
         if current_teams >= settings.max_teams_per_user:
             return False, f"Maximum of {settings.max_teams_per_user} team(s) per season", None
 
-        # Get current season
-        season = await self.season_service.get_or_create_weekly_season()
+        if len(pets_data) != TEAM_SIZE:
+            return False, f"A team must have exactly {TEAM_SIZE} Digimon", None
 
-        # Validate pets count
-        if len(pets_data) < 1 or len(pets_data) > 3:
-            return False, "Team must have between 1 and 3 pets", None
+        try:
+            answer = await engine.call(
+                {
+                    "command": "validate_team",
+                    "pets": pets_data,
+                    "restrictions": season.restrictions or {},
+                    "team_size": TEAM_SIZE,
+                },
+                season.runtime_version,
+                raise_on_refusal=False,
+            )
+        except engine.EngineError as exc:
+            return False, str(exc), None
+        if not answer.get("ok"):
+            errors = answer.get("errors") or []
+            message = errors[0]["message"] if errors else answer.get("message", "Team refused")
+            return False, message, None
+        entries = answer["entries"]
 
-        # Create team
         team = GameTeam(
             owner_id=user.id,
             season_id=season.id,
             name=team_name,
             is_active=True,
+            is_dummy=is_dummy,
         )
         self.db.add(team)
         await self.db.flush()
 
-        # Create pets
-        for pet_data in pets_data:
-            pet = GamePet(
+        for slot, (entry, upload) in enumerate(zip(entries, pets_data)):
+            self.db.add(GamePet(
                 owner_id=user.id,
                 team_id=team.id,
-                name=pet_data.get("name", "Unknown"),
-                module_name=pet_data.get("module_name", ""),
-                module_version=pet_data.get("module_version", "1.0.0"),
-                pet_version=pet_data.get("pet_version"),
-                stage=pet_data.get("stage", 1),
-                level=pet_data.get("level", 1),
-                atk_main=pet_data.get("atk_main", ""),
-                atk_alt=pet_data.get("atk_alt"),
-                atk_alt2=pet_data.get("atk_alt2"),
-                power=pet_data.get("power", 0),
-                attribute=pet_data.get("attribute"),
-                hp=pet_data.get("hp", 100),
-                star=pet_data.get("star", 1),
-                critical_turn=pet_data.get("critical_turn", 0),
-                extra_data=pet_data.get("extra_data"),
-            )
-
-            # Validate pet against season restrictions
-            if not self.season_service.is_pet_allowed_in_season(season, pet):
-                return (
-                    False,
-                    f"Pet '{pet.name}' does not meet season restrictions",
-                    None,
-                )
-
-            self.db.add(pet)
+                name=entry["name"],
+                module_name=entry["module"],
+                module_version=entry["module_version"],
+                pet_version=str(entry["version"]),
+                stage=entry["stage"],
+                level=entry["level"],
+                atk_main=str(entry["atk_main"]),
+                atk_alt=str(entry["atk_alt"]),
+                atk_alt2=str(entry.get("atk_alt_2", 0)),
+                power=entry["power"],
+                attribute=entry["attribute"],
+                hp=entry["hp"],
+                star=1,
+                critical_turn=0,
+                extra_data={
+                    "slot": slot,
+                    "arena_entry": entry,
+                    "upload": {
+                        "module_version": upload.get("module_version"),
+                        "status": upload.get("status"),
+                    },
+                },
+            ))
 
         await self.db.flush()
-        await self.db.refresh(team)
 
-        # Log activity
         await self.logging_service.log_activity(
             activity_type=ActivityType.TEAM_CREATED,
             user_id=user.id,
             target_id=team.id,
             target_type="team",
-            description=f"Team created with {len(pets_data)} pets",
-            log_metadata={"season_id": str(season.id)},
+            description=f"Team created with {len(entries)} pets",
+            log_metadata={"season_id": str(season.id),
+                          "runtime_version": season.runtime_version},
         )
 
         # Reload with relationships
@@ -244,15 +272,20 @@ class TeamService:
 
     async def claim_rewards(self, user: User) -> tuple[int, int, int]:
         """
-        Claim all pending rewards for a user.
+        Claim the results of every finished season.
         Returns (coins_claimed, new_balance, teams_processed).
+
+        Only teams whose season has closed and paid its prizes qualify, so a
+        claim can never come before the prize it should include.  A team
+        that earned nothing is still marked claimed: its results were seen.
         """
-        # Find teams with unclaimed rewards
         query = (
             select(GameTeam)
+            .join(Season, GameTeam.season_id == Season.id)
             .where(GameTeam.owner_id == user.id)
             .where(GameTeam.reward_claimed.is_(False))
-            .where(GameTeam.rewarded_coins > 0)
+            .where(Season.status == SeasonStatus.COMPLETED)
+            .where(Season.prizes_paid.is_(True))
         )
         result = await self.db.execute(query)
         teams = list(result.scalars().all())
@@ -262,15 +295,12 @@ class TeamService:
 
         total_coins = sum(t.rewarded_coins for t in teams)
 
-        # Claim rewards
         for team in teams:
             team.reward_claimed = True
 
-        # Update user coins
         user.coins += total_coins
         await self.db.flush()
 
-        # Log activity
         await self.logging_service.log_activity(
             activity_type=ActivityType.TEAM_REWARD_CLAIMED,
             user_id=user.id,
@@ -278,12 +308,13 @@ class TeamService:
             log_metadata={"coins": total_coins, "teams": len(teams)},
         )
 
-        await self.logging_service.log_activity(
-            activity_type=ActivityType.USER_COINS_EARNED,
-            user_id=user.id,
-            description=f"Earned {total_coins} coins from battle rewards",
-            log_metadata={"amount": total_coins, "source": "battle_rewards"},
-        )
+        if total_coins:
+            await self.logging_service.log_activity(
+                activity_type=ActivityType.USER_COINS_EARNED,
+                user_id=user.id,
+                description=f"Earned {total_coins} coins from battle rewards",
+                log_metadata={"amount": total_coins, "source": "battle_rewards"},
+            )
 
         return total_coins, user.coins, len(teams)
 
@@ -293,6 +324,7 @@ class TeamService:
         score_change: int,
         won: bool,
         draw: bool = False,
+        participation_coins: int | None = None,
     ) -> GameTeam:
         """Update team score after a battle.
 
@@ -311,42 +343,61 @@ class TeamService:
         else:
             team.losses += 1
 
-        team.rewarded_coins += settings.arena_participation_coins
+        if participation_coins is None:
+            participation_coins = settings.arena_participation_coins
+        team.rewarded_coins += participation_coins
 
         await self.db.flush()
         return team
+
+    async def count_attacks_today(self, team: GameTeam, now: datetime | None = None) -> int:
+        """Attacks *team* made since today's allowance began.
+
+        Defences do not count: being attacked never costs a team its own
+        attacks.
+        """
+        now = now or utcnow()
+        since = rules.attack_day_start(now, team.season.starts_at if team.season else None)
+        result = await self.db.execute(
+            select(func.count(GameBattle.id))
+            .where(GameBattle.team1_id == team.id)
+            .where(GameBattle.fought_at >= since)
+        )
+        return result.scalar_one()
 
     async def find_opponent(
         self,
         team: GameTeam,
         user_id: UUID,
+        now: datetime | None = None,
     ) -> GameTeam | None:
-        """Find a random opponent team that hasn't been matched yet today."""
-        from omninet.models.battle import GameBattle
-
-        today = date.today()
-
-        # Get teams the user has already fought today
-        subquery = (
+        """A random team of the same season this team has not attacked today."""
+        now = now or utcnow()
+        since = rules.attack_day_start(now, team.season.starts_at if team.season else None)
+        attacked_today = (
             select(GameBattle.team2_id)
             .where(GameBattle.team1_id == team.id)
-            .where(func.date(GameBattle.fought_at) == today)
-        ).union(
-            select(GameBattle.team1_id)
-            .where(GameBattle.team2_id == team.id)
-            .where(func.date(GameBattle.fought_at) == today)
+            .where(GameBattle.fought_at >= since)
         )
 
-        # Find opponent from same season
         query = (
             select(GameTeam)
             .options(selectinload(GameTeam.pets), selectinload(GameTeam.owner))
             .where(GameTeam.season_id == team.season_id)
             .where(GameTeam.owner_id != user_id)  # Not own team
             .where(GameTeam.is_active.is_(True))
-            .where(GameTeam.id.not_in(subquery))  # Not fought today
+            .where(GameTeam.id.not_in(attacked_today))
             .order_by(func.random())  # Random selection
             .limit(1)
         )
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
+
+
+def team_season_ends_at(team: GameTeam) -> datetime | None:
+    season = team.season
+    if season is None:
+        return None
+    if season.ends_at is not None:
+        return season.ends_at
+    return datetime.combine(season.end_date, datetime.min.time(), tzinfo=UTC)
