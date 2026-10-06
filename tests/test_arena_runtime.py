@@ -1,4 +1,5 @@
 """Arena runtime store, engine invocation and schedule maths (no database)."""
+import os
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -70,6 +71,13 @@ def test_unsafe_zip_members_never_leave_the_snapshot(arena_root, tmp_path, omnip
     report = runtime.apply_pending(verify_runtime)
     assert "error" not in report, report
     assert not list(arena_root.rglob("escape*.json"))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permissions")
+def test_the_drop_folders_take_files_from_other_users(arena_root):
+    runtime = ArenaRuntime(arena_root)
+    for path in (runtime.updates_dir, runtime.module_updates_dir):
+        assert path.stat().st_mode & 0o777 == 0o777
 
 
 def test_module_names_are_checked(arena_root):

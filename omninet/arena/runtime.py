@@ -111,6 +111,15 @@ def _omnipet_prefix(zf: zipfile.ZipFile) -> str:
     raise RuntimeUpdateError(f"Not an Omnipet build with the arena engine ({ENGINE_MARKER} missing)")
 
 
+def _make_writable(path: Path) -> None:
+    """Open *path* to every user, if this process owns it."""
+    try:
+        if path.stat().st_mode & 0o777 != 0o777:
+            os.chmod(path, 0o777)
+    except OSError:
+        pass  # someone else's folder: whoever made it decides
+
+
 def _write_json_atomic(path: Path, data: dict) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -130,6 +139,11 @@ class ArenaRuntime:
         self.rejected_dir = self.root / "rejected"
         for path in (self.module_updates_dir, self.runtimes_dir):
             path.mkdir(parents=True, exist_ok=True)
+        # The drop folders are filled by hand over the host's file share,
+        # whose user is not the container's: let anyone who can reach the
+        # folder write there.  The share is the access control.
+        for path in (self.updates_dir, self.module_updates_dir):
+            _make_writable(path)
 
     # -- current snapshot -------------------------------------------------
 
