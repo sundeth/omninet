@@ -30,6 +30,9 @@ class EngineError(Exception):
 
 def run_engine(runtime_dir: Path, request: dict, timeout: float | None = None) -> dict:
     """Run one request synchronously; returns the engine's answer."""
+    # The engine's working directory is src/, so every path it is given must
+    # be absolute.
+    runtime_dir = Path(runtime_dir).resolve()
     src = runtime_dir / "src"
     request = dict(request)
     request.setdefault("modules_dir", str(runtime_dir / "modules"))
@@ -71,6 +74,13 @@ def verify_runtime(runtime_dir: Path) -> None:
     if not catalog.get("ok"):
         raise EngineError(catalog.get("error", "engine_failure"),
                           catalog.get("message", "catalog failed"))
+    # Every module folder the snapshot carries must be readable by the
+    # engine; an empty answer for a non-empty folder means it was looking
+    # somewhere else.
+    folders = [p for p in (Path(runtime_dir) / "modules").glob("*/module.json")]
+    if folders and not catalog.get("modules"):
+        raise EngineError("engine_modules",
+                          f"The engine read none of the {len(folders)} modules in the snapshot")
 
 
 def runtime_dir_for(version: str | None) -> Path:

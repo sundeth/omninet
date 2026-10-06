@@ -1,6 +1,7 @@
 """Arena runtime store, engine invocation and schedule maths (no database)."""
 import os
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from conftest import TESTMON, make_module_zip
@@ -58,6 +59,19 @@ def test_updates_wait_in_the_drop_folder_until_applied(arena_root, tmp_path, omn
     third = runtime.apply_pending(verify_runtime)
     assert "TESTMOD" not in third["modules"]
     assert not (runtime.current_dir() / "modules" / "TESTMOD").exists()
+
+
+def test_a_relative_store_path_still_reaches_the_modules(tmp_path, monkeypatch, omnipet_zip_bytes):
+    # The deployed store is ./storage/arena; the engine runs from src/.
+    monkeypatch.chdir(tmp_path)
+    runtime = ArenaRuntime("relative-arena")
+    runtime.queue_omnipet(omnipet_zip_bytes)
+    report = runtime.apply_pending(verify_runtime)
+    assert "error" not in report, report
+    catalog = run_engine(runtime.current_dir(), {"command": "catalog"})
+    assert {m["name"] for m in catalog["modules"]} >= {"DMC"}
+    relative = Path("relative-arena") / "runtimes" / report["version"]
+    assert run_engine(relative, {"command": "catalog"})["modules"] == catalog["modules"]
 
 
 def test_unsafe_zip_members_never_leave_the_snapshot(arena_root, tmp_path, omnipet_zip_bytes):

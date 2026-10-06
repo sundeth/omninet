@@ -131,7 +131,9 @@ class ArenaRuntime:
     on the event loop run them with ``asyncio.to_thread``."""
 
     def __init__(self, root: Path | str | None = None):
-        self.root = Path(root) if root else settings.arena_path
+        # Absolute: the engine runs with its working directory in a
+        # snapshot's src/, where a relative store path would point nowhere.
+        self.root = (Path(root) if root else settings.arena_path).resolve()
         self.updates_dir = self.root / "updates"
         self.module_updates_dir = self.updates_dir / "modules"
         self.runtimes_dir = self.root / "runtimes"
