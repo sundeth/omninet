@@ -79,7 +79,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     # Start background tasks
     cleanup_task = asyncio.create_task(cleanup_cache_task())
-    shop_sync_task = asyncio.create_task(shop_sync_worker())
+    # A local server run against a shared database (arena simulations)
+    # leaves the shop alone.
+    shop_sync_task = (asyncio.create_task(shop_sync_worker())
+                      if settings.shop_sync_enabled else None)
     season_task = asyncio.create_task(season_status_task())
     bot_task = (asyncio.create_task(arena_bot_task())
                 if settings.is_dev and settings.arena_dev_bots else None)
@@ -88,7 +91,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     # Shutdown
     cleanup_task.cancel()
-    shop_sync_task.cancel()
+    if shop_sync_task is not None:
+        shop_sync_task.cancel()
     season_task.cancel()
     if bot_task is not None:
         bot_task.cancel()
@@ -96,10 +100,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         await cleanup_task
     except asyncio.CancelledError:
         pass
-    try:
-        await shop_sync_task
-    except asyncio.CancelledError:
-        pass
+    if shop_sync_task is not None:
+        try:
+            await shop_sync_task
+        except asyncio.CancelledError:
+            pass
     try:
         await season_task
     except asyncio.CancelledError:

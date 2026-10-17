@@ -105,6 +105,7 @@ async def get_team_battle_history(
                 is_draw=h["is_draw"],
                 score_change=h["score_change"],
                 fought_at=h["fought_at"],
+                opponent_pets=h.get("opponent_pets") or [],
             )
             for h in history
         ],

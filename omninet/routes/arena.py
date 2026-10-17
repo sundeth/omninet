@@ -9,26 +9,29 @@ never open.
 """
 import asyncio
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from omninet.arena import bots, engine, rules
 from omninet.arena.runtime import ArenaRuntime, RuntimeUpdateError
 from omninet.config import settings
-from omninet.models.battle import GameTeam
+from omninet.models.battle import GameTeam, SeasonWinner
 from omninet.models.module import GameModule, ModuleStatus
 from omninet.routes.deps import AdminUser, DbSession
-from omninet.routes.seasons import season_response
+from omninet.routes.seasons import season_response, winner_response
 from omninet.schemas.battle import (
     ArenaModuleResponse,
     ArenaModulesResponse,
     SeasonConfig,
     SeasonRestrictions,
+    SeasonWinnerResponse,
 )
 from omninet.services.device import DeviceService
 from omninet.services.season import SeasonService
+from omninet.services.team import published_module_names
 
 router = APIRouter(tags=["Arena"])
 
@@ -93,7 +96,8 @@ async def _queue_published_modules(db) -> list[str]:
 
 @router.get("/arena/modules", response_model=ArenaModulesResponse)
 async def arena_modules(db: DbSession):
-    """Modules the arena can field this season.
+    """Modules the arena can field this season: published on Omninet and
+    present in the season's runtime.
 
     A Digimon from any other module is refused at team creation.
     """
@@ -105,10 +109,28 @@ async def arena_modules(db: DbSession):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                             detail=str(exc)) from exc
     runtime_dir = engine.runtime_dir_for(version)
+    published = await published_module_names(db)
     return ArenaModulesResponse(
         runtime_version=runtime_dir.name,
-        modules=[ArenaModuleResponse(**m) for m in catalog.get("modules", [])],
+        modules=[ArenaModuleResponse(**m) for m in catalog.get("modules", [])
+                 if m.get("name") in published],
     )
+
+
+@router.get("/arena/winners", response_model=list[SeasonWinnerResponse])
+async def arena_winners(
+    db: DbSession,
+    user_id: UUID | None = None,
+    limit: int = Query(30, ge=1, le=300),
+):
+    """Every finished season's podium, newest first (one player's with
+    ``user_id``): the record player profiles will show."""
+    query = select(SeasonWinner)
+    if user_id is not None:
+        query = query.where(SeasonWinner.user_id == user_id)
+    query = query.order_by(SeasonWinner.created_at.desc(), SeasonWinner.rank.asc()).limit(limit)
+    result = await db.execute(query)
+    return [winner_response(w) for w in result.scalars().all()]
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +220,7 @@ class DevSeasonStart(BaseModel):
     name: str | None = None
     restrictions: SeasonRestrictions | None = None
     config: SeasonConfig | None = None
+    reward_multiplier: float = Field(1.0, ge=0)
     end_current: bool = Field(True, description="Close the running season first")
 
 
@@ -210,6 +233,15 @@ class DevDummies(BaseModel):
 class DevBots(BaseModel):
     battles: int = Field(5, ge=1, le=500)
     seed: int | None = None
+
+
+class DevAccounts(BaseModel):
+    """Simulated players: accounts with a linked device each."""
+
+    count: int = Field(5, ge=1, le=100)
+    prefix: str = Field("simplayer", min_length=3, max_length=30, pattern=r"^[a-z][a-z0-9_]*$")
+    start: int = Field(1, ge=1)
+    coins: int | None = Field(None, ge=0, description="Set every account's balance")
 
 
 @router.get("/dev/arena/status")
@@ -236,6 +268,7 @@ async def dev_start_season(data: DevSeasonStart, db: DbSession, _: DevAccess):
         name=data.name,
         restrictions=data.restrictions.model_dump(exclude_none=True) if data.restrictions else None,
         config=data.config.model_dump(exclude_none=True) if data.config else None,
+        reward_multiplier=data.reward_multiplier,
     )
     return {"report": report, "season": season_response(season)}
 
@@ -277,3 +310,19 @@ async def dev_dummies(data: DevDummies, db: DbSession, _: DevAccess):
 async def dev_bots(data: DevBots, db: DbSession, _: DevAccess):
     """Let dummy teams attack now (real matchmaking, limits and scoring)."""
     return await bots.run_bot_battles(db, data.battles, data.seed)
+
+
+@router.post("/dev/arena/accounts")
+async def dev_accounts(data: DevAccounts, db: DbSession, _: DevAccess):
+    """Accounts for simulated players (``<prefix>N``), each with a linked
+    device whose key the caller uses as ``X-Device-Key``.  Existing
+    accounts are reused with a fresh device."""
+    return {"accounts": await bots.create_player_accounts(
+        db, data.count, data.prefix, data.start, data.coins)}
+
+
+@router.post("/dev/arena/tick")
+async def dev_tick(db: DbSession, _: DevAccess):
+    """Run the season clock once now (closes a season whose time is up)."""
+    return {"report": await SeasonService(db).tick(wait_for_lock=True),
+            "status": await _status(db)}

@@ -139,19 +139,22 @@ Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4
 | GET | `` | List seasons |
 | GET | `/current` | Get the running season (404 between seasons) |
 | GET | `/{id}` | Get season details |
-| POST | `` | Schedule a season (admin only) |
+| GET | `/{id}/standings` | The season's table (live, or final once closed; `is_you` with a device key) |
+| GET | `/{id}/winners` | A finished season's podium |
+| POST | `` | Schedule a season (admin only); `config` may set `team_size` / `min_team_size` / `max_team_size`, `rank_prizes`, `attacks_per_day`, `charge`, scores, `day_minutes` |
 
 ### Arena (`/api/v1`)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/arena/modules` | Modules the arena can field this season |
+| GET | `/arena/modules` | Modules the arena can field this season (published and in the season's runtime) |
+| GET | `/arena/winners` | Every finished season's podium, newest first (`?user_id=` for one player) |
 | GET | `/admin/arena/status` | Season, runtime and queued updates (admin) |
 | POST | `/admin/arena/updates/omnipet` | Queue an Omnipet build zip (admin) |
 | POST | `/admin/arena/updates/sync-published` | Queue every published module (admin) |
 | POST | `/admin/arena/season/end` | End the running season now (admin) |
 | POST | `/admin/arena/tick` | Run the season clock once (admin) |
-| GET/POST | `/dev/arena/...` | Development tools: status, season start/end, runtime apply, dummy teams, bot battles (ENVIRONMENT=dev only; admin `X-Device-Key` or `X-Dev-Token`) |
+| GET/POST | `/dev/arena/...` | Development tools: status, season start/end, tick, runtime apply, dummy teams, bot battles, simulated-player accounts with device keys (ENVIRONMENT=dev only; admin `X-Device-Key` or `X-Dev-Token`) |
 
 ### Admin (`/api/v1/admin`)
 
@@ -227,6 +230,10 @@ Example season:
 | `SMTP_PASSWORD` | SMTP password | - |
 | `MAX_DAILY_BATTLES` | Max battles per team per day | 10 |
 | `MAX_TEAMS_PER_USER` | Max teams per user per season | 1 |
+| `ARENA_MIN_TEAM_SIZE` / `ARENA_MAX_TEAM_SIZE` | Digimon per arena team (a season may narrow it) | 1 / 3 |
+| `ARENA_PET_JSON_MAX_BYTES` | Largest full pet copy kept with a team | 65536 |
+| `SHOP_SYNC_ENABLED` | Shop JSON -> database sync (off for a local server sharing a database) | true |
+| `DATABASE_ECHO` | SQL statement logging (unset: on in dev) | (unset) |
 
 ## Project Structure
 

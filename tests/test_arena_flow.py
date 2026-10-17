@@ -48,6 +48,7 @@ async def _season(omnipet_zip_bytes, tmp_path):
     from omninet.database import engine as db_engine
     from omninet.main import app
     from omninet.models.battle import GamePet, GameTeam
+    from omninet.models.module import GameModule, ModuleStatus
     from omninet.services.device import DeviceService
     from omninet.services.season import SeasonService
     from omninet.services.user import UserService
@@ -75,6 +76,11 @@ async def _season(omnipet_zip_bytes, tmp_path):
             nickname="alice", email="alice@test.local", password="pw",
             is_verified=True)
         key = (await DeviceService(db).create_device(user.id)).secret_key
+        # Only published modules may field Digimon: the runtime's DMC and
+        # DMX are published, DM20 stays a draft.
+        for name, status in (("DMC", ModuleStatus.PUBLISHED), ("DMX", ModuleStatus.PUBLISHED),
+                             ("DM20", ModuleStatus.DRAFT)):
+            db.add(GameModule(owner_id=user.id, name=name, version="1.0.0", status=status))
         await db.commit()
     auth = {"X-Device-Key": key}
 
@@ -82,7 +88,9 @@ async def _season(omnipet_zip_bytes, tmp_path):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as api:
         modules = (await api.get("/api/v1/arena/modules")).json()
-        assert "DMC" in {m["name"] for m in modules["modules"]}
+        names = {m["name"] for m in modules["modules"]}
+        assert "DMC" in names and "DM20" not in names, names
+        modules_by_name = {m["name"]: m["version"] for m in modules["modules"]}
 
         season = (await api.get("/api/v1/seasons/current")).json()
         assert season["config"]["attacks_per_day"] == settings.max_daily_battles
@@ -104,7 +112,22 @@ async def _season(omnipet_zip_bytes, tmp_path):
         refused = await api.post("/api/v1/teams", headers=auth, json={
             "pets": [dict(uploads[0], module_name="NOT_ON_SERVER")] + uploads[1:]})
         assert refused.status_code == 400
-        assert "not available" in refused.json()["detail"]
+        assert "not a published module" in refused.json()["detail"]
+        draft = run_engine(ArenaRuntime().current_dir(), {
+            "command": "random_team", "seed": 5,
+            "restrictions": {"allowed_modules": ["DM20"]}})["pets"]
+        refused = await api.post("/api/v1/teams", headers=auth, json={"pets": draft})
+        assert refused.status_code == 400 and "DM20 is not a published module" in refused.text
+        # An edited species value on the server's own module version.
+        edited = [dict(u, module_version=modules_by_name["DMC"],
+                       base={"power": 9999}) for u in uploads]
+        refused = await api.post("/api/v1/teams", headers=auth, json={"pets": edited})
+        assert refused.status_code == 400 and "does not match" in refused.text, refused.text
+        twice = [dict(u, uid="same") for u in uploads]
+        refused = await api.post("/api/v1/teams", headers=auth, json={"pets": twice})
+        assert refused.status_code == 400 and "twice" in refused.text
+        uploads = [dict(u, uid=f"alice-{i}", pet_json={"name": u["name"], "level": 3})
+                   for i, u in enumerate(uploads)]
 
         tampered = [dict(u, power=9999, stage=7, attribute="Vi") for u in uploads]
         created = await api.post("/api/v1/teams", headers=auth, json={"pets": tampered})
@@ -112,6 +135,12 @@ async def _season(omnipet_zip_bytes, tmp_path):
         team = created.json()
         assert team["season_ends_at"] and team["daily_battles_remaining"] == settings.max_daily_battles
         assert all(p["power"] < 9999 and p["stage"] != 7 for p in team["pets"])
+        assert [p["uid"] for p in team["pets"]] == ["alice-0", "alice-1", "alice-2"]
+        assert all("pet_json" not in (p["extra_data"] or {}) for p in team["pets"])
+        async with async_session_maker() as db:
+            stored = (await db.execute(select(GamePet).where(
+                GamePet.team_id == team["id"]))).scalars().all()
+        assert all(p.extra_data["pet_json"]["level"] == 3 for p in stored)
 
         # -- attacking: replayable log, attacks counted, defences free ------
         found = (await api.post(f"/api/v1/battles/find/{team['id']}", headers=auth)).json()
@@ -131,6 +160,10 @@ async def _season(omnipet_zip_bytes, tmp_path):
         assert bots["battles"] >= 1, bots
         current = (await api.get("/api/v1/teams/current", headers=auth)).json()
         assert current["daily_battles_remaining"] == settings.max_daily_battles - 1
+        fought = current["wins"] + current["losses"] + current["draws"]
+        assert current["attacks"] == 1 and current["attacks"] + current["defences"] == fought
+        assert all(p["battles"] == fought and p["wins"] == current["wins"]
+                   for p in current["pets"])
 
         history = (await api.get(f"/api/v1/battles/team/{team['id']}/history",
                                  headers=auth)).json()
@@ -158,6 +191,17 @@ async def _season(omnipet_zip_bytes, tmp_path):
         past = (await api.get("/api/v1/teams?include_past=true", headers=auth)).json()
         mine_past = next(t for t in past if t["id"] == team["id"])
         assert mine_past["season_status"] == "completed" and mine_past["final_rank"]
+        podium = (await api.get(f"/api/v1/seasons/{season['id']}/winners")).json()
+        assert [w["rank"] for w in podium] == [1, 2, 3] and podium[0]["prize_coins"] == 50
+        assert (await api.get("/api/v1/arena/winners")).json()[0]["season_id"] == season["id"]
+        table = (await api.get(f"/api/v1/seasons/{season['id']}/standings",
+                               headers=auth)).json()
+        assert [r["rank"] for r in table] == list(range(1, len(table) + 1))
+        assert sum(r["is_you"] for r in table) == 1
+
+        # The same Digimon cannot fight the next season in the same form.
+        veteran = await api.post("/api/v1/teams", headers=auth, json={"pets": uploads})
+        assert veteran.status_code == 400 and "already fought" in veteran.text, veteran.text
         claim = (await api.post("/api/v1/teams/claim-rewards", headers=auth)).json()
         assert claim["teams_processed"] == 1
         assert claim["coins_claimed"] == mine_past["rewarded_coins"]
@@ -168,11 +212,18 @@ async def _season(omnipet_zip_bytes, tmp_path):
         themed = (await api.post("/api/v1/dev/arena/season/start", json={
             "length_hours": 0.25,
             "restrictions": {"allowed_stages": [3]},
-            "config": {"attacks_per_day": 50, "charge": "random"},
+            "config": {"attacks_per_day": 50, "charge": "random", "team_size": 2},
         }, headers=dev)).json()
         assert themed["season"]["config"]["charge"] == "random"
-        wrong = await api.post("/api/v1/teams", headers=auth, json={"pets": tampered})
-        assert wrong.status_code == 400 and "Stage" in wrong.json()["detail"]
+        assert themed["season"]["config"]["min_team_size"] == 2
+        assert themed["season"]["config"]["max_team_size"] == 2
+        fresh = [dict(u, uid=None) for u in tampered]
+        wrong = await api.post("/api/v1/teams", headers=auth, json={"pets": fresh})
+        assert wrong.status_code == 400 and "exactly 2" in wrong.json()["detail"]
+        grown = [u for u, p in zip(fresh, team["pets"]) if p["stage"] != 3][:2]
+        if len(grown) == 2:
+            wrong = await api.post("/api/v1/teams", headers=auth, json={"pets": grown})
+            assert wrong.status_code == 400 and "Stage" in wrong.json()["detail"]
         dummies = (await api.post("/api/v1/dev/arena/dummies",
                                   json={"count": 4, "seed": 2}, headers=dev)).json()
         assert len(dummies["created"]) == 4, dummies

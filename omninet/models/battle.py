@@ -203,7 +203,20 @@ class GamePet(Base):
     star: Mapped[int] = mapped_column(Integer, default=1)
     critical_turn: Mapped[int] = mapped_column(Integer, default=0)
 
-    # Additional pet data (JSON for flexibility)
+    # The game's identity for this Digimon, kept through evolution: one
+    # species form fights one season (it may return once it has evolved).
+    pet_uid: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+
+    # This copy's arena record (every battle its team fought, attacks and
+    # defences); the game adds it to the real pet when the season ends.
+    battles: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    wins: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    losses: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    draws: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    # Additional pet data (JSON for flexibility): ``slot``, ``arena_entry``
+    # (the engine's battle entry), ``upload`` (status the client sent) and
+    # ``pet_json`` (the full save copy of the Digimon).
     extra_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -278,3 +291,50 @@ class GameBattle(Base):
 
     def __repr__(self) -> str:
         return f"<GameBattle(team1={self.team1_id}, team2={self.team2_id}, result={self.result})>"
+
+
+class SeasonWinner(Base):
+    """A podium place of a finished season, kept for good.
+
+    Written once when the season closes (``SeasonService.close_season``).
+    It copies what a profile or hall of fame shows -- nickname, record,
+    the team's Digimon -- so it survives later changes to the team or the
+    account.
+    """
+
+    __tablename__ = "season_winners"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    season_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("seasons.id", ondelete="CASCADE"), nullable=False,
+        index=True,
+    )
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+        index=True,
+    )
+    team_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("game_teams.id", ondelete="SET NULL"), nullable=True
+    )
+    nickname: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    season_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    score: Mapped[int] = mapped_column(Integer, default=0)
+    wins: Mapped[int] = mapped_column(Integer, default=0)
+    losses: Mapped[int] = mapped_column(Integer, default=0)
+    draws: Mapped[int] = mapped_column(Integer, default=0)
+    prize_coins: Mapped[int] = mapped_column(Integer, default=0)
+    # [{"name", "module", "version", "stage", "attribute"}] in team order
+    pets: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("season_id", "rank", name="uq_season_winner_rank"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<SeasonWinner(season={self.season_id}, rank={self.rank}, nickname={self.nickname})>"

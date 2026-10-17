@@ -4,11 +4,17 @@ Season routes.
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import select
 
 from omninet.arena import rules
-from omninet.models.battle import Season, SeasonStatus
-from omninet.routes.deps import AdminUser, DbSession
-from omninet.schemas.battle import SeasonCreate, SeasonResponse
+from omninet.models.battle import Season, SeasonStatus, SeasonWinner
+from omninet.routes.deps import AdminUser, DbSession, OptionalUser
+from omninet.schemas.battle import (
+    SeasonCreate,
+    SeasonResponse,
+    SeasonStandingResponse,
+    SeasonWinnerResponse,
+)
 from omninet.services.season import SeasonService
 
 router = APIRouter(prefix="/seasons", tags=["Seasons"])
@@ -58,6 +64,62 @@ async def get_current_season(
             detail="No arena season is running",
         )
     return season_response(season)
+
+
+def winner_response(w: SeasonWinner) -> SeasonWinnerResponse:
+    return SeasonWinnerResponse(
+        season_id=w.season_id,
+        season_name=w.season_name,
+        rank=w.rank,
+        user_id=w.user_id,
+        nickname=w.nickname,
+        score=w.score,
+        wins=w.wins,
+        losses=w.losses,
+        draws=w.draws,
+        prize_coins=w.prize_coins,
+        pets=w.pets or [],
+        created_at=w.created_at,
+    )
+
+
+@router.get("/{season_id}/winners", response_model=list[SeasonWinnerResponse])
+async def get_season_winners(season_id: UUID, db: DbSession):
+    """A finished season's podium (empty while it runs)."""
+    result = await db.execute(
+        select(SeasonWinner)
+        .where(SeasonWinner.season_id == season_id)
+        .order_by(SeasonWinner.rank.asc()))
+    return [winner_response(w) for w in result.scalars().all()]
+
+
+@router.get("/{season_id}/standings", response_model=list[SeasonStandingResponse])
+async def get_season_standings(
+    season_id: UUID,
+    db: DbSession,
+    current_user: OptionalUser = None,
+    limit: int = Query(50, ge=1, le=500),
+):
+    """A season's table: live while it runs, final once it has closed."""
+    service = SeasonService(db)
+    season = await service.get_by_id(season_id)
+    if not season:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Season not found")
+    teams = await service.ranked_teams(season)
+    me = current_user.id if current_user else None
+    rows = []
+    for rank, team in enumerate(teams[:limit], start=1):
+        rows.append(SeasonStandingResponse(
+            rank=team.final_rank or rank,
+            nickname=team.owner.nickname if team.owner else None,
+            score=team.score,
+            wins=team.wins,
+            losses=team.losses,
+            draws=team.draws,
+            pets=[p.name for p in sorted(team.pets, key=lambda p: (p.extra_data or {}).get("slot", 0))],
+            is_you=me is not None and team.owner_id == me,
+        ))
+    return rows
 
 
 @router.get("/{season_id}", response_model=SeasonResponse)

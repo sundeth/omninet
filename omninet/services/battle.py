@@ -5,7 +5,9 @@ A battle is fought by Omnipet's arena engine (OMNIPET rules with the DMX
 default patterns) on the season's runtime snapshot.  The attacker is always
 team1.  Both teams' scores move (win / loss / draw per the season config)
 and both earn the participation coins; only attacks count against the
-attacker's daily allowance.
+attacker's daily allowance.  Every Digimon on both teams shares its team's
+outcome in its own record, which the game adds to the real pet when the
+season ends.
 """
 import secrets
 from typing import Any
@@ -21,7 +23,7 @@ from omninet.models.logs import ActivityType
 from omninet.models.user import User
 from omninet.services.logging import LoggingService
 from omninet.services.season import utcnow
-from omninet.services.team import TeamService, team_entries
+from omninet.services.team import TeamService, team_entries, team_pets
 
 #: Version of the stored battle_log (the game's battle.arena.replay reads it).
 BATTLE_LOG_VERSION = 2
@@ -66,7 +68,9 @@ class BattleService:
             select(GameBattle)
             .options(
                 selectinload(GameBattle.team1).selectinload(GameTeam.owner),
+                selectinload(GameBattle.team1).selectinload(GameTeam.pets),
                 selectinload(GameBattle.team2).selectinload(GameTeam.owner),
+                selectinload(GameBattle.team2).selectinload(GameTeam.pets),
             )
             .where(
                 (GameBattle.team1_id == team_id) | (GameBattle.team2_id == team_id)
@@ -112,9 +116,20 @@ class BattleService:
                 season.ends_at is not None and utcnow() >= season.ends_at):
             return False, "This team's season has ended", None, 0
 
+        # One attack at a time per team: the allowance is counted under the
+        # lock, so two requests at once cannot both spend the last attack.
+        await self.team_service.lock_attacks(team)
+        # The season cannot close while this battle is being recorded (the
+        # close takes the row FOR UPDATE); re-read it under the lock.
+        await self.db.execute(
+            select(Season.id).where(Season.id == season.id).with_for_update(read=True))
+        await self.db.refresh(season, attribute_names=["status", "ends_at"])
+        if season.status != SeasonStatus.ACTIVE or (
+                season.ends_at is not None and utcnow() >= season.ends_at):
+            return False, "This team's season has ended", None, 0
         can_fight, remaining = await self.can_battle(team)
         if not can_fight:
-            return False, "Daily attack limit reached", None, 0
+            return False, "No attacks left today", None, 0
 
         opponent = await self.team_service.find_opponent(team, user.id)
         if not opponent:
@@ -202,21 +217,22 @@ class BattleService:
         self.db.add(battle)
 
         coins = config["participation_coins"]
-        await self.team_service.update_team_score(
-            attacker, team1_change,
-            won=(result == BattleResult.TEAM1_WIN),
-            draw=(result == BattleResult.DRAW),
-            participation_coins=coins,
-        )
-        await self.team_service.update_team_score(
-            defender, team2_change,
-            won=(result == BattleResult.TEAM2_WIN),
-            draw=(result == BattleResult.DRAW),
-            participation_coins=coins,
-        )
+        outcomes = [
+            (attacker, team1_change, result == BattleResult.TEAM1_WIN),
+            (defender, team2_change, result == BattleResult.TEAM2_WIN),
+        ]
+        # Always the same row order, so two players attacking each other at
+        # the same moment cannot deadlock on their two teams.
+        for team, change, won in sorted(outcomes, key=lambda o: str(o[0].id)):
+            await self.team_service.record_battle(
+                team, change, won=won, draw=(result == BattleResult.DRAW),
+                participation_coins=coins)
 
         await self.db.flush()
         await self.db.refresh(battle)
+        for team in (attacker, defender):
+            await self.db.refresh(team, attribute_names=["score", "wins", "losses", "draws",
+                                                         "rewarded_coins"])
 
         return battle
 
@@ -233,7 +249,7 @@ class BattleService:
         if team.owner_id != user.id:
             return False, "You don't own this team", []
 
-        battles = await self.get_team_battles(team_id)
+        battles = await self.get_team_battles(team_id, limit=300)
 
         history = []
         for battle in battles:
@@ -254,6 +270,7 @@ class BattleService:
                 "is_draw": battle.result == BattleResult.DRAW,
                 "score_change": score_change,
                 "fought_at": battle.fought_at,
+                "opponent_pets": [p.name for p in team_pets(opponent_team)],
             })
 
         return True, "Battle history retrieved", history

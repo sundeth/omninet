@@ -162,3 +162,43 @@ def test_the_attack_day_starts_at_midnight_or_the_season_start():
     assert rules.attack_day_start(now, None) == datetime(2026, 10, 5, tzinfo=UTC)
     later = datetime(2026, 10, 5, 12, tzinfo=UTC)
     assert rules.attack_day_start(now, later) == later
+
+
+def test_team_sizes_default_to_one_to_three_and_a_season_may_force_one():
+    class Open:
+        config = None
+
+    class Solo:
+        config = {"team_size": 1}
+
+    class Pairs:
+        config = {"min_team_size": 2, "max_team_size": 9}
+
+    open_ = rules.season_config(Open())
+    assert (open_["min_team_size"], open_["max_team_size"]) == (1, 3)
+    solo = rules.season_config(Solo())
+    assert (solo["min_team_size"], solo["max_team_size"]) == (1, 1)
+    pairs = rules.season_config(Pairs())
+    assert (pairs["min_team_size"], pairs["max_team_size"]) == (2, 3)
+    assert "team_size" not in rules.clean_config({"team_size": 2})
+
+
+def test_rank_prizes_default_to_the_settings_and_a_season_may_extend_them():
+    class Plain:
+        config = None
+
+    class Grand:
+        config = {"rank_prizes": ["100", 60, -5]}
+
+    assert rules.season_config(Plain())["rank_prizes"] == [50, 25, 10]
+    assert rules.season_config(Grand())["rank_prizes"] == [100, 60, 0]
+
+
+def test_a_compressed_season_counts_days_from_its_start():
+    start = datetime(2026, 10, 5, 12, 0, 30, tzinfo=UTC)
+    now = start + timedelta(minutes=7, seconds=10)
+    assert rules.attack_day_start(now, start, 3) == start + timedelta(minutes=6)
+    assert rules.next_attack_day(now, start, 3) == start + timedelta(minutes=9)
+    assert rules.attack_day_start(start, start, 3) == start
+    # Without day_minutes the day is the UTC day, as before.
+    assert rules.next_attack_day(now, start) == datetime(2026, 10, 6, tzinfo=UTC)

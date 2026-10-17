@@ -11,8 +11,22 @@ from datetime import UTC, datetime, timedelta
 from omninet.config import settings
 
 #: Keys a season config may set.
+#:
+#: - ``team_size`` forces one team size; ``min_team_size`` /
+#:   ``max_team_size`` give a range (both within 1..TEAM_SIZE_LIMIT).
+#: - ``rank_prizes``: coins for the 1st, 2nd, ... best teams that fought
+#:   (times the season's reward multiplier).
+#: - ``day_minutes``: length of an attack "day" counted from the season
+#:   start instead of UTC days -- for compressed development seasons.
 CONFIG_KEYS = ("attacks_per_day", "charge", "win_score", "loss_score",
-               "draw_score", "participation_coins")
+               "draw_score", "participation_coins", "team_size",
+               "min_team_size", "max_team_size", "rank_prizes", "day_minutes")
+
+#: No arena team fields more Digimon than this (the battle is 3 lanes).
+TEAM_SIZE_LIMIT = 3
+
+_INT_KEYS = ("attacks_per_day", "win_score", "loss_score", "draw_score",
+             "participation_coins")
 
 
 def _parse_charge(value):
@@ -24,6 +38,10 @@ def _parse_charge(value):
         return 2
 
 
+def _team_size(value) -> int:
+    return max(1, min(TEAM_SIZE_LIMIT, int(value)))
+
+
 def default_config() -> dict:
     return {
         "attacks_per_day": settings.max_daily_battles,
@@ -32,25 +50,50 @@ def default_config() -> dict:
         "loss_score": settings.arena_loss_score,
         "draw_score": settings.arena_draw_score,
         "participation_coins": settings.arena_participation_coins,
+        "min_team_size": _team_size(settings.arena_min_team_size),
+        "max_team_size": _team_size(settings.arena_max_team_size),
+        "rank_prizes": [settings.arena_first_place_coins,
+                        settings.arena_second_place_coins,
+                        settings.arena_third_place_coins],
+        "day_minutes": None,
     }
 
 
 def clean_config(config: dict | None) -> dict:
-    """Only the known keys, with charge normalised."""
+    """Only the known keys, normalised; ``team_size`` becomes a range."""
     cleaned = {k: v for k, v in (config or {}).items() if k in CONFIG_KEYS and v is not None}
     if "charge" in cleaned:
         cleaned["charge"] = _parse_charge(cleaned["charge"])
-    for key in ("attacks_per_day", "win_score", "loss_score", "draw_score",
-                "participation_coins"):
+    for key in _INT_KEYS:
         if key in cleaned:
             cleaned[key] = int(cleaned[key])
+    if "team_size" in cleaned:
+        size = _team_size(cleaned.pop("team_size"))
+        cleaned["min_team_size"] = cleaned["max_team_size"] = size
+    for key in ("min_team_size", "max_team_size"):
+        if key in cleaned:
+            cleaned[key] = _team_size(cleaned[key])
+    if "rank_prizes" in cleaned:
+        cleaned["rank_prizes"] = [max(0, int(c)) for c in list(cleaned["rank_prizes"])[:100]]
+    if "day_minutes" in cleaned:
+        cleaned["day_minutes"] = max(1, int(cleaned["day_minutes"]))
     return cleaned
 
 
 def season_config(season) -> dict:
-    """Defaults overlaid with the season's own config."""
+    """Defaults overlaid with the season's own config.
+
+    The team-size range always holds min <= max: a season that raises only
+    the minimum raises the maximum with it.
+    """
     config = default_config()
     config.update(clean_config(getattr(season, "config", None)))
+    if config["min_team_size"] > config["max_team_size"]:
+        own = clean_config(getattr(season, "config", None))
+        if "max_team_size" in own:
+            config["min_team_size"] = config["max_team_size"]
+        else:
+            config["max_team_size"] = config["min_team_size"]
     return config
 
 
@@ -99,7 +142,27 @@ def auto_season_name(slot_start: datetime, starts_at: datetime, length: timedelt
     return f"Season {starts_at:%b %d %H:%M} UTC"
 
 
-def attack_day_start(now: datetime, season_start: datetime | None) -> datetime:
-    """When today's attack allowance began: UTC midnight, or the season start."""
+def attack_day_start(now: datetime, season_start: datetime | None,
+                     day_minutes: int | None = None) -> datetime:
+    """When today's attack allowance began: UTC midnight, or the season start.
+
+    With *day_minutes* (a compressed development season) the "days" are
+    blocks of that many minutes counted from the season start.
+    """
+    if day_minutes and season_start:
+        length = timedelta(minutes=day_minutes)
+        if now <= season_start:
+            return season_start
+        return season_start + ((now - season_start) // length) * length
     midnight = now.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     return max(midnight, season_start) if season_start else midnight
+
+
+def next_attack_day(now: datetime, season_start: datetime | None,
+                    day_minutes: int | None = None) -> datetime:
+    """When the next attack allowance begins (the end of the current day)."""
+    start = attack_day_start(now, season_start, day_minutes)
+    if day_minutes and season_start:
+        return start + timedelta(minutes=day_minutes)
+    midnight = now.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight + timedelta(days=1)

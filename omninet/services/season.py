@@ -5,8 +5,9 @@ One season is ACTIVE at a time.  ``tick`` (run by a background task, and by
 the admin/dev tools) does everything that happens at a season boundary, in
 this order:
 
-1. close the active season once ``ends_at`` has passed: final ranks, top-3
-   prizes (credited once, claimable afterwards);
+1. close the active season once ``ends_at`` has passed: final ranks, rank
+   prizes (credited once, claimable afterwards) and the season's podium in
+   ``season_winners``;
 2. apply queued Omnipet/module updates to the arena runtime -- the only
    moment the battle rules may change;
 3. open the next season: a scheduled (UPCOMING) one whose start has come,
@@ -20,12 +21,13 @@ from uuid import UUID
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from omninet.arena import rules
 from omninet.arena.engine import verify_runtime
 from omninet.arena.runtime import ArenaRuntime
 from omninet.config import settings
-from omninet.models.battle import GameTeam, Season, SeasonStatus
+from omninet.models.battle import GameTeam, Season, SeasonStatus, SeasonWinner
 from omninet.models.logs import ActivityType
 from omninet.services.logging import LoggingService
 
@@ -33,8 +35,20 @@ from omninet.services.logging import LoggingService
 _SEASON_LOCK_KEY = 72026100501
 
 
+#: Places kept in ``season_winners`` even when fewer earn a prize.
+PODIUM_PLACES = 3
+
+
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def standing_key(team: GameTeam) -> tuple:
+    """Sort key of a season's table: teams that fought first, then score,
+    wins and the earlier team.  Prize places follow this order."""
+    fought = team.wins + team.losses + team.draws > 0
+    created = team.created_at.timestamp() if team.created_at else 0.0
+    return (not fought, -team.score, -team.wins, created)
 
 
 def _end_date(ends_at: datetime) -> date:
@@ -174,6 +188,7 @@ class SeasonService:
         restrictions: dict | None = None,
         config: dict | None = None,
         now: datetime | None = None,
+        reward_multiplier: float = 1.0,
     ) -> Season:
         """Open a season immediately (development / admin).  The caller
         must have closed the running one first."""
@@ -186,66 +201,97 @@ class SeasonService:
             description="Manually started arena season",
             restrictions=restrictions,
             config=config,
+            reward_multiplier=reward_multiplier,
         )
         await self._activate(season)
         return season
 
     # -- closing -------------------------------------------------------------
 
-    async def close_season(self, season: Season, now: datetime | None = None) -> list[tuple[UUID, int]]:
-        """Complete *season*: final ranks, then the top-3 prizes.
+    async def ranked_teams(self, season: Season, lock: bool = False) -> list[GameTeam]:
+        """*season*'s active teams in table order (``standing_key``)."""
+        query = (
+            select(GameTeam)
+            .options(selectinload(GameTeam.pets), selectinload(GameTeam.owner))
+            .where(GameTeam.season_id == season.id)
+            .where(GameTeam.is_active.is_(True))
+            .execution_options(populate_existing=True)
+        )
+        if lock:
+            query = query.with_for_update(of=GameTeam)
+        result = await self.db.execute(query)
+        return sorted(result.scalars().all(), key=standing_key)
 
-        Prizes go to the three best teams that fought at least one battle,
-        added to their ``rewarded_coins`` (claimed through
+    async def close_season(self, season: Season, now: datetime | None = None) -> list[tuple[UUID, int]]:
+        """Complete *season*: final ranks, the rank prizes and its podium.
+
+        Prizes (the season's ``rank_prizes``, by default 50/25/10, times its
+        reward multiplier) go to the best teams that fought at least one
+        battle, added to their ``rewarded_coins`` (claimed through
         /teams/claim-rewards) and only once: ``prizes_paid`` guards it.
-        Ending early moves ``ends_at`` back to *now*.
+        The podium (at least the top three that fought) is copied into
+        ``season_winners`` at the same moment.  Ending early moves
+        ``ends_at`` back to *now*.
         """
         now = now or utcnow()
+        # Waits for battles under way (they hold the season FOR SHARE), and
+        # keeps new ones out until the close is committed.
+        await self.db.execute(
+            select(Season.id).where(Season.id == season.id).with_for_update())
         if season.ends_at is None or season.ends_at > now:
             season.ends_at = now
             season.end_date = _end_date(now)
         season.status = SeasonStatus.COMPLETED
 
-        query = (
-            select(GameTeam)
-            .where(GameTeam.season_id == season.id)
-            .where(GameTeam.is_active.is_(True))
-            .order_by(GameTeam.score.desc(), GameTeam.wins.desc(), GameTeam.created_at.asc())
-        )
-        result = await self.db.execute(query)
-        teams = list(result.scalars().all())
+        teams = await self.ranked_teams(season, lock=True)
         for rank, team in enumerate(teams, start=1):
             team.final_rank = rank
 
         awarded: list[tuple[UUID, int]] = []
         if not season.prizes_paid:
-            prizes = [
-                settings.arena_first_place_coins,
-                settings.arena_second_place_coins,
-                settings.arena_third_place_coins,
-            ]
+            prizes = list(rules.season_config(season)["rank_prizes"])
             multiplier = season.reward_multiplier or 1.0
-            # Only a team that fought (attacked or was attacked) can place.
+            # Only a team that fought (attacked or was attacked) can place;
+            # they head the table, so their place is their final rank.
             contenders = [t for t in teams if t.wins + t.losses + t.draws > 0]
-            for rank, (team, prize) in enumerate(zip(contenders, prizes), start=1):
-                prize = int(round(prize * multiplier))
-                if prize <= 0:
-                    continue
-                team.rewarded_coins += prize
-                awarded.append((team.id, prize))
-                await self.logging_service.log_activity(
-                    activity_type=ActivityType.TEAM_REWARD_CLAIMED,
-                    user_id=team.owner_id,
-                    target_id=team.id,
-                    target_type="team",
-                    description=f"Season top-{rank} prize: {prize} coins ({season.name})",
-                    log_metadata={
-                        "season_id": str(season.id),
-                        "rank": rank,
-                        "prize": prize,
-                        "score": team.score,
-                    },
-                )
+            places = max(PODIUM_PLACES, len(prizes))
+            for rank, team in enumerate(contenders[:places], start=1):
+                prize = int(round(prizes[rank - 1] * multiplier)) if rank <= len(prizes) else 0
+                if prize > 0:
+                    team.rewarded_coins += prize
+                    awarded.append((team.id, prize))
+                    await self.logging_service.log_activity(
+                        activity_type=ActivityType.TEAM_REWARD_CLAIMED,
+                        user_id=team.owner_id,
+                        target_id=team.id,
+                        target_type="team",
+                        description=f"Season rank {rank} prize: {prize} coins ({season.name})",
+                        log_metadata={
+                            "season_id": str(season.id),
+                            "rank": rank,
+                            "prize": prize,
+                            "score": team.score,
+                        },
+                    )
+                if rank <= PODIUM_PLACES or prize > 0:
+                    self.db.add(SeasonWinner(
+                        season_id=season.id,
+                        rank=rank,
+                        user_id=team.owner_id,
+                        team_id=team.id,
+                        nickname=team.owner.nickname if team.owner else None,
+                        season_name=season.name,
+                        score=team.score,
+                        wins=team.wins,
+                        losses=team.losses,
+                        draws=team.draws,
+                        prize_coins=prize,
+                        pets=[{"name": p.name, "module": p.module_name,
+                               "version": p.pet_version, "stage": p.stage,
+                               "attribute": p.attribute}
+                              for p in sorted(team.pets,
+                                              key=lambda p: (p.extra_data or {}).get("slot", 0))],
+                    ))
             season.prizes_paid = True
 
         await self.db.flush()

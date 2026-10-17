@@ -5,7 +5,9 @@ Dummy accounts (``arenabot1``, ``arenabot2``, ...) get random but legal
 teams built by the arena engine from the server's own modules, respecting
 the running season's restrictions, and can attack on their own -- through
 the same battle path a player uses -- so a whole season can be exercised in
-minutes.  Nothing here may run outside the dev environment.
+minutes.  ``create_player_accounts`` makes accounts with linked devices for
+simulated players that use the public API like a game does.  Nothing here
+may run outside the dev environment.
 """
 import random
 
@@ -13,12 +15,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from omninet.arena import engine
+from omninet.arena import engine, rules
 from omninet.config import settings
 from omninet.models.battle import GameTeam
 from omninet.services.battle import BattleService
+from omninet.services.device import DeviceService
 from omninet.services.season import SeasonService
-from omninet.services.team import TEAM_SIZE, TeamService
+from omninet.services.team import TeamService, published_module_names
 from omninet.services.user import UserService
 
 BOT_PREFIX = "arenabot"
@@ -64,13 +67,15 @@ async def create_dummy_teams(
         if await team_service.get_user_current_team(user.id) is not None:
             skipped.append(nickname)
             continue
+        config = rules.season_config(season)
+        published = await published_module_names(db)
         answer = await engine.call(
             {
                 "command": "random_team",
                 "seed": rng.randrange(2**31),
                 "restrictions": season.restrictions or {},
-                "team_size": TEAM_SIZE,
-                "modules": modules,
+                "team_size": rng.randint(config["min_team_size"], config["max_team_size"]),
+                "modules": [m for m in (modules or sorted(published)) if m in published],
             },
             season.runtime_version,
         )
@@ -120,3 +125,42 @@ async def run_bot_battles(db: AsyncSession, battles: int = 5, seed: int | None =
             outcomes.append({"attacker": team.owner.nickname, "skipped": message})
     await db.flush()
     return {"battles": fought, "season": season.name, "outcomes": outcomes}
+
+
+async def create_player_accounts(
+    db: AsyncSession,
+    count: int,
+    prefix: str = "simplayer",
+    start: int = 1,
+    coins: int | None = None,
+) -> list[dict]:
+    """``count`` verified accounts ``<prefix><start>``... with a fresh linked
+    device each: [{"nickname", "user_id", "device_key"}].
+
+    For simulated players driving the public API (and headless games) in
+    development; existing accounts are reused.
+    """
+    require_dev()
+    user_service = UserService(db)
+    device_service = DeviceService(db)
+    out = []
+    for i in range(start, start + count):
+        nickname = f"{prefix}{i}"
+        user = await user_service.get_by_nickname(nickname)
+        if user is None:
+            user = await user_service.create_user(
+                nickname=nickname,
+                email=f"{nickname}@dev.local",
+                password="devplayer",
+                type_name="Standard",
+                is_verified=True,
+                is_active=True,
+            )
+        if coins is not None:
+            user.coins = coins
+        device = await device_service.create_device(
+            user.id, device_type="game", device_name="arena simulation")
+        out.append({"nickname": nickname, "user_id": str(user.id),
+                    "device_key": device.secret_key, "coins": user.coins})
+    await db.flush()
+    return out

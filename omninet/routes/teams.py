@@ -16,7 +16,7 @@ from omninet.schemas.battle import (
 )
 from omninet.schemas.common import MessageResponse
 from omninet.services.battle import BattleService
-from omninet.services.team import TeamService, team_season_ends_at
+from omninet.services.team import TeamService, team_pets, team_season_ends_at
 
 router = APIRouter(prefix="/teams", tags=["Teams"])
 
@@ -25,8 +25,9 @@ def _team_response(
     team: GameTeam,
     rank: int | None = None,
     daily_remaining: int | None = None,
+    **extra,
 ) -> TeamResponse:
-    pets = sorted(team.pets, key=lambda p: (p.extra_data or {}).get("slot", 0))
+    pets = team_pets(team)
     return TeamResponse(
         id=team.id,
         name=team.name,
@@ -59,7 +60,12 @@ def _team_response(
                 hp=p.hp,
                 star=p.star,
                 critical_turn=p.critical_turn,
-                extra_data=p.extra_data,
+                uid=p.pet_uid,
+                battles=p.battles or 0,
+                wins=p.wins or 0,
+                losses=p.losses or 0,
+                draws=p.draws or 0,
+                extra_data=_public_extra(p.extra_data),
                 created_at=p.created_at,
             )
             for p in pets
@@ -68,7 +74,26 @@ def _team_response(
         updated_at=team.updated_at,
         rank=rank,
         daily_battles_remaining=daily_remaining,
+        **extra,
     )
+
+
+def _public_extra(extra: dict | None) -> dict | None:
+    """A pet's extra_data without its full save copy (kept server-side; the
+    game already has the pet)."""
+    if not extra:
+        return extra
+    return {k: v for k, v in extra.items() if k != "pet_json"}
+
+
+async def _hub_extras(db, team: GameTeam) -> dict:
+    """What the arena hub shows beside the team: when the next attacks
+    arrive, how many teams are in the season, attacks and defences."""
+    team_service = TeamService(db)
+    extras = await team_service.battle_split(team)
+    extras["season_teams"] = await team_service.count_season_teams(team.season_id)
+    extras["next_attacks_at"] = team_service.next_attack_day(team)
+    return extras
 
 
 @router.get("", response_model=list[TeamListResponse])
@@ -134,7 +159,7 @@ async def get_current_team(
 
     rank = await team_service.get_team_rank(team)
     _, daily_remaining = await BattleService(db).can_battle(team)
-    return _team_response(team, rank, daily_remaining)
+    return _team_response(team, rank, daily_remaining, **await _hub_extras(db, team))
 
 
 @router.get("/{team_id}", response_model=TeamResponse)
@@ -159,7 +184,8 @@ async def get_team(
             detail="You don't own this team",
         )
 
-    return _team_response(team, await team_service.get_team_rank(team))
+    return _team_response(team, await team_service.get_team_rank(team),
+                          **await team_service.battle_split(team))
 
 
 @router.post("", response_model=TeamResponse)
@@ -172,6 +198,9 @@ async def create_team(
 
     The server rebuilds every Digimon from its own module data; the
     response's ``season_ends_at`` is when the game releases the team's pets.
+    Refusals (400) say why in ``detail``: team size, an unpublished module,
+    a Digimon that already fought a season in this form, stats that do not
+    match the server's module, or the season's restrictions.
     """
     team_service = TeamService(db)
 
@@ -191,7 +220,7 @@ async def create_team(
 
     rank = await team_service.get_team_rank(team)
     _, daily_remaining = await BattleService(db).can_battle(team)
-    return _team_response(team, rank, daily_remaining)
+    return _team_response(team, rank, daily_remaining, **await _hub_extras(db, team))
 
 
 @router.delete("/{team_id}", response_model=MessageResponse)

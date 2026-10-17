@@ -68,11 +68,23 @@ class Settings(BaseSettings):
     # ``GET /shop/{kind}/{id}/sprite`` endpoint to serve it.
     shop_sprites_path: str = "./storage/shop_sprites"
 
+    # Shop JSON -> database sync at startup and daily (off for a local
+    # server sharing another environment's database).
+    shop_sync_enabled: bool = True
+
+    # SQL statement logging; unset = on in dev, off in prd.  Long arena
+    # simulations against a dev database turn it off.
+    database_echo: bool | None = None
+
     # Battle Configuration
     # Attacks a team may make per UTC day; a season's config can override
     # it ("attacks_per_day").  Being attacked never uses this up.
     max_daily_battles: int = 10
     max_teams_per_user: int = 1
+    # Digimon per arena team.  A season's config may narrow the range or
+    # force one size ("team_size": 1 makes a season of solo Digimon).
+    arena_min_team_size: int = 1
+    arena_max_team_size: int = 3
 
     # Verification
     verification_code_expiry_minutes: int = 5
@@ -96,6 +108,9 @@ class Settings(BaseSettings):
     arena_first_place_coins: int = 50    # season top-3
     arena_second_place_coins: int = 25
     arena_third_place_coins: int = 10
+    # A uploaded Digimon's full save copy is kept with the team, up to this
+    # many bytes of JSON (larger copies are refused).
+    arena_pet_json_max_bytes: int = 65536
 
     # Arena score changes per battle, for both the attacker and the defender
     # (a season's config may override them: win_score/loss_score/draw_score).
