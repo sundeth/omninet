@@ -213,8 +213,11 @@ class ShopService:
         else:
             return False, "Invalid purchase type", None
 
-        # Check if already owned
-        if await self.user_owns_item(user.id, item_id, purchase_type):
+        # Unlocks (modules, cosmetics, gameplay, specials) are bought once and
+        # kept; items are consumables, bought again whenever the player has
+        # the coins (owner, 2026-10-17). Each purchase is its own row, which
+        # the game counts as one item.
+        if purchase_type != PurchaseType.ITEM and await self.user_owns_item(user.id, item_id, purchase_type):
             return False, f"You already own {item_name}", None
 
         # Check if user has enough coins
