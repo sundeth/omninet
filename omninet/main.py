@@ -86,6 +86,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     season_task = asyncio.create_task(season_status_task())
     bot_task = (asyncio.create_task(arena_bot_task())
                 if settings.is_dev and settings.arena_dev_bots else None)
+    # The Discord relay, only with a token (discord.py is imported then only)
+    discord_task = None
+    if settings.discord_bot_token:
+        from omninet.discord.bot import run_bot
+        from omninet.discord.relay import get_relay
+        discord_task = asyncio.create_task(run_bot(settings.discord_bot_token, get_relay()))
 
     yield
 
@@ -96,6 +102,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     season_task.cancel()
     if bot_task is not None:
         bot_task.cancel()
+    if discord_task is not None:
+        discord_task.cancel()
+        try:
+            await discord_task
+        except asyncio.CancelledError:
+            pass
     try:
         await cleanup_task
     except asyncio.CancelledError:
@@ -172,6 +184,10 @@ app.include_router(admin_router, prefix="/api/v1")
 app.include_router(arena_router, prefix="/api/v1")
 app.include_router(shop_router, prefix="/api/v1")
 app.include_router(rewards_router, prefix="/api/v1")
+# The Discord relay's API, only where its bot runs (a token is set)
+if settings.discord_bot_token:
+    from omninet.routes.discord import router as discord_router
+    app.include_router(discord_router, prefix="/api/v1")
 
 # When a root_path prefix is configured (e.g. "/dev"), Swagger UI generates the
 # openapi URL as "{root_path}/openapi.json".  FastAPI only registers "/openapi.json",

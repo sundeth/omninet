@@ -203,3 +203,19 @@ docker compose -f docker-compose.deploy.yml --profile staging restart omninet-de
 docker compose -f docker-compose.deploy.yml --profile production restart omninet-prd
 ```
 
+
+---
+
+## Discord relay (optional)
+
+The Discord bot that relays Omnipet battle rooms and account links runs inside
+Omninet (`omninet/discord/`, routes under `/api/v1/discord/`). It loads only
+when a token is set: add `DISCORD_BOT_TOKEN=<the bot's token>` to **one**
+environment's file (`.env.production` normally; a token connected from two
+servers answers every command twice) and restart that container. Without the
+variable the routes are not mounted and discord.py is never imported.
+
+The bot needs the Message Content and Server Members intents (Discord
+developer portal, Bot tab) and, in the server it joins, Send Messages, Read
+Message History and View Channels. Pairing codes are kept in
+`<storage>/discord/linked_users.json`; rooms live in memory (30 minutes).

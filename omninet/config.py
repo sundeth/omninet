@@ -128,6 +128,12 @@ class Settings(BaseSettings):
     # omninet/arena/runtime.py.
     arena_storage_path: str = "./storage/arena"
     arena_runtimes_to_keep: int = 4
+
+    # Discord relay (omninet/discord): the bot and /api/v1/discord load only
+    # with a token. Set it on one environment: a token connected twice
+    # answers every command twice. Links are kept under the storage path.
+    discord_bot_token: str = ""
+    discord_storage_path: str = "./storage/discord"
     # Python that runs the battle engine (python -m battle.arena from the
     # runtime's src/).  Empty = the interpreter running the server.
     arena_python: str = ""
