@@ -159,15 +159,19 @@ class ShopService:
     async def user_owns_item(
         self, user_id: uuid.UUID, item_id: uuid.UUID, purchase_type: PurchaseType
     ) -> bool:
-        """Check if user owns an item."""
+        """Check if user owns an item.
+
+        Items can be bought again and again, so there may be several
+        purchases of one: any of them is ownership (scalar_one_or_none()
+        raised MultipleResultsFound, a 500 on the item's download)."""
         result = await self.db.execute(
-            select(UserPurchase).where(
+            select(UserPurchase.id).where(
                 UserPurchase.user_id == user_id,
                 UserPurchase.item_id == item_id,
                 UserPurchase.purchase_type == purchase_type,
-            )
+            ).limit(1)
         )
-        return result.scalar_one_or_none() is not None
+        return result.scalars().first() is not None
 
     async def get_user_by_device_key(self, device_key: str) -> User | None:
         """Get user by device secret key."""
@@ -386,10 +390,21 @@ class ShopService:
         if not item:
             return None
 
+        # The item's picture, as the shop serves it (<shop assets>/items/, or
+        # the entry's inline sprite_b64); empty when there is none, as before.
         sprites = {}
         if item.sprite_name:
-            # TODO: Load actual sprite file
-            sprites[f"{item.sprite_name}.png"] = ""  # Base64 would go here
+            name = Path(item.sprite_name).name
+            stem = name[:-4] if name.lower().endswith(".png") else name
+            data = ""
+            folder = Path(settings.shop_assets_base) / "items"
+            for path in (folder / name, folder / f"{stem}.png"):
+                if path.is_file():
+                    data = base64.b64encode(path.read_bytes()).decode("ascii")
+                    break
+            if not data and isinstance(item.json_data, dict):
+                data = item.json_data.get("sprite_b64") or ""
+            sprites[f"{stem}.png"] = data
 
         return {
             "id": item.id,

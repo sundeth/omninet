@@ -292,3 +292,42 @@ async def _specials(root, files):
         got = {name: base64.b64decode(data) for name, data in download["sprites"].items()}
         assert got == {"bg_plain.png": files["bg_plain.png"],
                        "bg_plain_high.png": files["bg_plain_high.png"]}
+
+
+def test_an_item_bought_twice_still_downloads(storage):
+    _run(_item_twice(*storage))
+
+
+async def _item_twice(root, files):
+    """Items are bought again and again: the ownership check took exactly one
+    purchase (scalar_one_or_none) and the second made the download a 500."""
+    import httpx
+
+    from omninet.database import async_session_maker
+    from omninet.main import app
+    from omninet.models import ShopItem
+
+    await _reset_database()
+    (root / "items").mkdir()
+    (root / "items" / "icon_test_item.png").write_bytes(_png(b"item"))
+    item_id = uuid.UUID(int=21)
+    async with async_session_maker() as db:
+        db.add(ShopItem(id=item_id, name="Test Item", price=4, enabled=True,
+                        sprite_name="icon_test_item", json_data={"effect": "test"}))
+        await db.commit()
+    user_id, key = await _account("dave", "dave@test.local", coins=20)
+    device = {"X-Device-Key": key}
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as api:
+        url = f"/api/v1/shop/download/item/{item_id}"
+        assert (await api.get(url, headers=device)).status_code == 404, "not bought yet"
+        buy = {"purchase_type": "item", "item_id": str(item_id)}
+        for _ in range(3):
+            bought = (await api.post("/api/v1/shop/purchase", json=buy, headers=device)).json()
+            assert bought["success"] is True, bought
+            answer = await api.get(url, headers=device)
+            assert answer.status_code == 200, answer.text
+        assert await _balances(user_id) == (8, 0)
+        sprites = answer.json()["sprites"]
+        assert {n: base64.b64decode(d) for n, d in sprites.items()} == {
+            "icon_test_item.png": _png(b"item")}
