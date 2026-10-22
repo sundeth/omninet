@@ -2,7 +2,6 @@
 Main FastAPI application entry point.
 """
 import asyncio
-import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -15,6 +14,7 @@ from omninet.config import settings
 from omninet.database import close_db, get_db_context, init_db
 from omninet.routes import (
     admin_router,
+    arena_router,
     auth_router,
     battles_router,
     modules_router,
@@ -38,20 +38,34 @@ async def cleanup_cache_task():
 
 async def season_status_task():
     """
-    Background task: roll season statuses and pay out top-3 prizes.
+    Background task: the arena season clock.
 
-    Runs every 5 minutes.  ``update_season_statuses`` flips
-    UPCOMING→ACTIVE / ACTIVE→COMPLETED based on dates and, on the
-    transition to COMPLETED, calls ``close_season`` to add top-3 prize
-    coins to the winning teams' ``rewarded_coins``.
+    Every ``arena_tick_seconds`` it closes a season whose time is up (final
+    ranks, top-3 prizes), installs queued Omnipet/module updates at that
+    boundary, and opens the next season.  See SeasonService.tick.
     """
     while True:
         try:
             async with get_db_context() as db:
-                await SeasonService(db).update_season_statuses()
+                report = await SeasonService(db).tick()
+            if report and set(report) - {"skipped"}:
+                print(f"[season_status_task] {report}")
         except Exception as exc:
             print(f"[season_status_task] error: {exc}")
-        await asyncio.sleep(300)  # 5 minutes
+        await asyncio.sleep(max(5, settings.arena_tick_seconds))
+
+
+async def arena_bot_task():
+    """Development only: dummy arena players attack on a timer."""
+    from omninet.arena.bots import run_bot_battles
+
+    while True:
+        await asyncio.sleep(max(5, settings.arena_dev_bot_interval_seconds))
+        try:
+            async with get_db_context() as db:
+                await run_bot_battles(db, settings.arena_dev_bot_battles_per_tick)
+        except Exception as exc:
+            print(f"[arena_bot_task] error: {exc}")
 
 
 @asynccontextmanager
@@ -60,35 +74,49 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # Startup
     print(f"Starting Omninet v{__version__} ({settings.environment} environment)")
 
-    # Inject game client simulator path so server can import battle code directly
-    if settings.game_client_path:
-        client_path = settings.game_client_path
-        if client_path not in sys.path:
-            sys.path.insert(0, client_path)
-            print(f"[Omninet] Game client path added to sys.path: {client_path}")
-
     # Initialize database
     await init_db()
 
     # Start background tasks
     cleanup_task = asyncio.create_task(cleanup_cache_task())
-    shop_sync_task = asyncio.create_task(shop_sync_worker())
+    # A local server run against a shared database (arena simulations)
+    # leaves the shop alone.
+    shop_sync_task = (asyncio.create_task(shop_sync_worker())
+                      if settings.shop_sync_enabled else None)
     season_task = asyncio.create_task(season_status_task())
+    bot_task = (asyncio.create_task(arena_bot_task())
+                if settings.is_dev and settings.arena_dev_bots else None)
+    # The Discord relay, only with a token (discord.py is imported then only)
+    discord_task = None
+    if settings.discord_bot_token:
+        from omninet.discord.bot import run_bot
+        from omninet.discord.relay import get_relay
+        discord_task = asyncio.create_task(run_bot(settings.discord_bot_token, get_relay()))
 
     yield
 
     # Shutdown
     cleanup_task.cancel()
-    shop_sync_task.cancel()
+    if shop_sync_task is not None:
+        shop_sync_task.cancel()
     season_task.cancel()
+    if bot_task is not None:
+        bot_task.cancel()
+    if discord_task is not None:
+        discord_task.cancel()
+        try:
+            await discord_task
+        except asyncio.CancelledError:
+            pass
     try:
         await cleanup_task
     except asyncio.CancelledError:
         pass
-    try:
-        await shop_sync_task
-    except asyncio.CancelledError:
-        pass
+    if shop_sync_task is not None:
+        try:
+            await shop_sync_task
+        except asyncio.CancelledError:
+            pass
     try:
         await season_task
     except asyncio.CancelledError:
@@ -153,8 +181,13 @@ app.include_router(teams_router, prefix="/api/v1")
 app.include_router(battles_router, prefix="/api/v1")
 app.include_router(seasons_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
+app.include_router(arena_router, prefix="/api/v1")
 app.include_router(shop_router, prefix="/api/v1")
 app.include_router(rewards_router, prefix="/api/v1")
+# The Discord relay's API, only where its bot runs (a token is set)
+if settings.discord_bot_token:
+    from omninet.routes.discord import router as discord_router
+    app.include_router(discord_router, prefix="/api/v1")
 
 # When a root_path prefix is configured (e.g. "/dev"), Swagger UI generates the
 # openapi URL as "{root_path}/openapi.json".  FastAPI only registers "/openapi.json",

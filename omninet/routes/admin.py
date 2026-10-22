@@ -14,7 +14,6 @@ from omninet.schemas.common import MessageResponse
 from omninet.services.logging import LoggingService
 from omninet.services.module import ModuleService
 from omninet.services.season import SeasonService
-from omninet.services.team import TeamService
 from omninet.services.user import UserService
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -24,153 +23,37 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 # Dev-only seeding endpoint
 # ---------------------------------------------------------------------------
 
-# DMC pets used to seed every dummy team — values copied from
-# Omnipet/modules/DMC/monster.json so the server-side rank battle code sees
-# legitimate stage-4 pets with non-zero power.  atk_main is stringified to
-# match the GamePet.atk_main column type.
-_DUMMY_TEAM_PETS = [
-    {
-        "name": "Greymon",
-        "module_name": "DMC",
-        "module_version": "1.0",
-        "pet_version": "1",
-        "stage": 4,
-        "level": 1,
-        "atk_main": "4",
-        "atk_alt": None,
-        "atk_alt2": None,
-        "power": 50,
-        "attribute": "Va",
-        "hp": 100,
-        "star": 1,
-        "critical_turn": 0,
-        "extra_data": {"seeded": True, "source": "dev_dummy_teams"},
-    },
-    {
-        "name": "Garurumon",
-        "module_name": "DMC",
-        "module_version": "1.0",
-        "pet_version": "2",
-        "stage": 4,
-        "level": 1,
-        "atk_main": "4",
-        "atk_alt": None,
-        "atk_alt2": None,
-        "power": 45,
-        "attribute": "Va",
-        "hp": 100,
-        "star": 1,
-        "critical_turn": 0,
-        "extra_data": {"seeded": True, "source": "dev_dummy_teams"},
-    },
-    {
-        "name": "Ogremon",
-        "module_name": "DMC",
-        "module_version": "1.0",
-        "pet_version": "3",
-        "stage": 4,
-        "level": 1,
-        "atk_main": "7",
-        "atk_alt": None,
-        "atk_alt2": None,
-        "power": 50,
-        "attribute": "Vi",
-        "hp": 100,
-        "star": 1,
-        "critical_turn": 0,
-        "extra_data": {"seeded": True, "source": "dev_dummy_teams"},
-    },
-]
-
 
 class SeedDummyTeamsResponse(BaseModel):
-    accounts_created: int
-    accounts_reused: int
-    teams_created: int
-    teams_skipped_existing: int
     season_name: str
-    accounts: list[str]
+    created: list[str]
+    skipped: list[str]
+    failed: list[str]
 
 
 @router.post("/dev/seed-dummy-teams", response_model=SeedDummyTeamsResponse)
-async def seed_dummy_teams(db: DbSession):
-    """Create ``account1``..``account10`` plus a 3-pet team for the current
-    season for each one — DEV ENVIRONMENT ONLY.
-
-    Used to stand up enough server-side rank-battle opponents that the
-    matchmaking code has someone to pair against.  All ten teams share the
-    same Greymon / Garurumon / Ogremon trio from the DMC module.
-
-    Refuses to run unless ``settings.environment == "dev"``.  Safe to
-    re-run: accounts and teams that already exist are skipped rather than
-    duplicated.
+async def seed_dummy_teams(admin_user: AdminUser, db: DbSession):
+    """Give ten dummy accounts a random legal team in the running season
+    -- DEV ENVIRONMENT ONLY, admin only.  Kept for existing scripts; the
+    full set of tools is under /dev/arena (see routes/arena.py).
     """
     if not settings.is_dev:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This endpoint is dev-only",
         )
+    from omninet.arena import bots, engine
 
-    user_service = UserService(db)
-    season_service = SeasonService(db)
-    team_service = TeamService(db)
-
-    season = await season_service.get_or_create_weekly_season()
-
-    accounts_created = 0
-    accounts_reused = 0
-    teams_created = 0
-    teams_skipped_existing = 0
-    account_names: list[str] = []
-
-    for i in range(1, 11):
-        nickname = f"account{i}"
-        email = f"account{i}@dev.local"
-        account_names.append(nickname)
-
-        # Reuse existing user with same nickname (safe re-run) or create new.
-        user = await user_service.get_by_nickname(nickname)
-        if user is None:
-            user = await user_service.create_user(
-                nickname=nickname,
-                email=email,
-                password="devdummy",
-                type_name="Standard",
-                is_verified=True,
-                is_active=True,
-            )
-            accounts_created += 1
-        else:
-            accounts_reused += 1
-
-        # Don't create a duplicate team for the active season.
-        existing = await team_service.get_user_current_team(user.id)
-        if existing is not None and existing.season_id == season.id:
-            teams_skipped_existing += 1
-            continue
-
-        ok, msg, _team = await team_service.create_team(
-            user=user,
-            pets_data=_DUMMY_TEAM_PETS,
-            team_name=f"{nickname}'s squad",
-        )
-        if ok:
-            teams_created += 1
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Team creation failed for {nickname}: {msg}",
-            )
-
-    await db.commit()
+    try:
+        report = await bots.create_dummy_teams(db, count=10)
+    except (ValueError, engine.EngineError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     return SeedDummyTeamsResponse(
-        accounts_created=accounts_created,
-        accounts_reused=accounts_reused,
-        teams_created=teams_created,
-        teams_skipped_existing=teams_skipped_existing,
-        season_name=season.name,
-        accounts=account_names,
+        season_name=report["season"],
+        created=report["created"],
+        skipped=report["skipped"],
+        failed=report["failed"],
     )
 
 
@@ -280,6 +163,13 @@ async def ban_module(
     module.status = ModuleStatus.BANNED
     await db.flush()
 
+    # Out of the arena from the next season on.
+    try:
+        from omninet.arena.runtime import ArenaRuntime
+        ArenaRuntime().queue_module_removal(module.name)
+    except Exception as exc:  # noqa: BLE001 - the ban itself stands
+        print(f"[admin] could not queue arena removal of {module.name}: {exc}")
+
     await logging_service.log_activity(
         activity_type=ActivityType.MODULE_BANNED,
         user_id=admin_user.id,
@@ -318,11 +208,11 @@ async def update_season_statuses(
     admin_user: AdminUser,
     db: DbSession,
 ):
-    """Update all season statuses based on dates (admin only)."""
+    """Run the arena season clock once (admin only)."""
     season_service = SeasonService(db)
-    await season_service.update_season_statuses()
+    report = await season_service.tick(wait_for_lock=True)
 
-    return MessageResponse(message="Season statuses updated")
+    return MessageResponse(message=f"Season clock: {report}")
 
 
 @router.get("/logs")

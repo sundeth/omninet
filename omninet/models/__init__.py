@@ -1,7 +1,7 @@
 """
 Database models package.
 """
-from omninet.models.battle import GameBattle, GamePet, GameTeam, Season
+from omninet.models.battle import GameBattle, GamePet, GameTeam, Season, SeasonWinner
 from omninet.models.logs import ActivityLog
 from omninet.models.module import GameModule, ModuleCategory, ModuleContributor, ModuleStatus
 from omninet.models.reward import RewardClaim
@@ -28,6 +28,7 @@ __all__ = [
     "GameTeam",
     "GameBattle",
     "Season",
+    "SeasonWinner",
     "ActivityLog",
     "ShopCosmetic",
     "ShopGameplay",

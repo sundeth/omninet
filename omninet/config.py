@@ -68,9 +68,23 @@ class Settings(BaseSettings):
     # ``GET /shop/{kind}/{id}/sprite`` endpoint to serve it.
     shop_sprites_path: str = "./storage/shop_sprites"
 
+    # Shop JSON -> database sync at startup and daily (off for a local
+    # server sharing another environment's database).
+    shop_sync_enabled: bool = True
+
+    # SQL statement logging; unset = on in dev, off in prd.  Long arena
+    # simulations against a dev database turn it off.
+    database_echo: bool | None = None
+
     # Battle Configuration
+    # Attacks a team may make per UTC day; a season's config can override
+    # it ("attacks_per_day").  Being attacked never uses this up.
     max_daily_battles: int = 10
     max_teams_per_user: int = 1
+    # Digimon per arena team.  A season's config may narrow the range or
+    # force one size ("team_size": 1 makes a season of solo Digimon).
+    arena_min_team_size: int = 1
+    arena_max_team_size: int = 3
 
     # Verification
     verification_code_expiry_minutes: int = 5
@@ -94,12 +108,57 @@ class Settings(BaseSettings):
     arena_first_place_coins: int = 50    # season top-3
     arena_second_place_coins: int = 25
     arena_third_place_coins: int = 10
+    # A uploaded Digimon's full save copy is kept with the team, up to this
+    # many bytes of JSON (larger copies are refused).
+    arena_pet_json_max_bytes: int = 65536
 
-    # Game client path — absolute path to the Omnipet game client's src/
-    # directory.  When set, this path is prepended to sys.path at startup
-    # so the server can import the game's battle simulator directly without
-    # copy-pasting code.  Leave empty to skip.
-    game_client_path: str = ""
+    # Arena score changes per battle, for both the attacker and the defender
+    # (a season's config may override them: win_score/loss_score/draw_score).
+    arena_win_score: int = 25
+    arena_loss_score: int = -12
+    arena_draw_score: int = 5
+    # Charge quality (0-3, or "random") every Digimon fights with; nobody
+    # plays the charge minigame in an asynchronous battle.
+    arena_default_charge: str = "2"
+
+    # Arena runtime: the server's own copy of Omnipet's source and module
+    # data, under <arena_storage_path>/runtimes/.  Updates dropped into
+    # <arena_storage_path>/updates/ (Omnipet zips, and module zips queued by
+    # module publishing) are applied only when a season ends.  See
+    # omninet/arena/runtime.py.
+    arena_storage_path: str = "./storage/arena"
+    arena_runtimes_to_keep: int = 4
+
+    # Discord relay (omninet/discord): the bot and /api/v1/discord load only
+    # with a token. Set it on one environment: a token connected twice
+    # answers every command twice. Links are kept under the storage path.
+    discord_bot_token: str = ""
+    discord_storage_path: str = "./storage/discord"
+    # Python that runs the battle engine (python -m battle.arena from the
+    # runtime's src/).  Empty = the interpreter running the server.
+    arena_python: str = ""
+    arena_engine_timeout_seconds: int = 30
+
+    # Season schedule.  Seasons tile from the anchor in blocks of
+    # arena_season_length_hours; the default anchor is a Sunday 00:00 UTC,
+    # so the default 168 hours gives Sunday-to-Sunday weeks.
+    arena_auto_seasons: bool = True
+    arena_season_length_hours: float = 168
+    arena_season_anchor: str = "2026-01-04T00:00:00+00:00"
+    # JSON forced onto every automatically created season, e.g.
+    # '{"allowed_stages": [3]}' and '{"charge": 3, "attacks_per_day": 20}'.
+    arena_season_restrictions: str = ""
+    arena_season_config: str = ""
+    # How often the season clock runs (closing seasons, paying prizes,
+    # applying runtime updates, opening the next season).
+    arena_tick_seconds: int = 60
+
+    # Development only: dummy players that attack on their own, and an
+    # optional token the /dev/arena tools then require (X-Dev-Token).
+    arena_dev_token: str = ""
+    arena_dev_bots: bool = False
+    arena_dev_bot_interval_seconds: int = 60
+    arena_dev_bot_battles_per_tick: int = 3
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -131,6 +190,13 @@ class Settings(BaseSettings):
     def modules_path(self) -> Path:
         """Get the modules storage path as Path object."""
         path = Path(self.modules_storage_path)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @property
+    def arena_path(self) -> Path:
+        """Root of the arena runtime store."""
+        path = Path(self.arena_storage_path)
         path.mkdir(parents=True, exist_ok=True)
         return path
 

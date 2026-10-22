@@ -38,3 +38,6 @@ pytest>=7.4.4
 pytest-asyncio>=0.23.3
 black>=24.1.0
 ruff>=0.1.14
+
+# Discord relay (loaded only when DISCORD_BOT_TOKEN is set)
+discord.py>=2.3.2
