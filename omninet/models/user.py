@@ -55,6 +55,12 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     coins: Mapped[int] = mapped_column(Integer, default=0)
+    # A second currency, kept apart from the coins: earned by contributing to
+    # the Digimon Database (ContributionCredit) and spent on Specials priced
+    # in contribution points.
+    contribution_points: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

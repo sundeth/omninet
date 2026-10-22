@@ -30,6 +30,17 @@ class CosmeticType(enum.Enum):
     BACKGROUND = "background"
 
 
+#: What a shop entry is paid with. Coins are the game's currency; contribution
+#: points are earned on the Digimon Database and pay for some Specials.
+CURRENCY_COINS = "coins"
+CURRENCY_CONTRIBUTION_POINTS = "contribution_points"
+CURRENCIES = (CURRENCY_COINS, CURRENCY_CONTRIBUTION_POINTS)
+
+#: What a Special unlocks. Only backgrounds so far; the game lists a type it
+#: does not know as unavailable.
+SPECIAL_TYPE_BACKGROUND = "background"
+
+
 class ShopCosmetic(Base):
     """Cosmetic items available in the shop (backgrounds, etc.)."""
 
@@ -117,7 +128,8 @@ class ShopItem(Base):
 
 
 class ShopSpecial(Base):
-    """Special limited-time items in the shop (future use)."""
+    """Specials: unlocks bought once, optionally for a limited time and in
+    either currency (storage/specials/specials.json, services/shop_sync.py)."""
 
     __tablename__ = "shop_specials"
 
@@ -127,6 +139,16 @@ class ShopSpecial(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     price: Mapped[int] = mapped_column(Integer, default=0)
+    # CURRENCY_COINS or CURRENCY_CONTRIBUTION_POINTS: which balance pays it.
+    currency: Mapped[str] = mapped_column(
+        String(32), default=CURRENCY_COINS, server_default=CURRENCY_COINS, nullable=False
+    )
+    # What it unlocks (SPECIAL_TYPE_BACKGROUND); details in json_data.
+    special_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # A background's base file name in <storage>/backgrounds ("bg_<name>").
+    sprite_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Listing order (then name).
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     json_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     sell_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -172,6 +194,10 @@ class UserPurchase(Base):
         index=True,
     )
     price_paid: Mapped[int] = mapped_column(Integer, default=0)
+    # The balance price_paid came out of (CURRENCIES).
+    currency: Mapped[str] = mapped_column(
+        String(32), default=CURRENCY_COINS, server_default=CURRENCY_COINS, nullable=False
+    )
     purchased_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

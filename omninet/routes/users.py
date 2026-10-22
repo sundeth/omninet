@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, status
 from omninet.routes.deps import CurrentUser, DbSession
 from omninet.schemas.common import MessageResponse
 from omninet.schemas.user import DeviceResponse, UserResponse, UserUpdate
+from omninet.services.contribution import ContributionService
 from omninet.services.device import DeviceService
 from omninet.services.user import UserService
 
@@ -17,8 +18,10 @@ router = APIRouter(prefix="/users", tags=["Users"])
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_profile(
     current_user: CurrentUser,
+    db: DbSession,
 ):
     """Get the current user's profile."""
+    contribution_points = await ContributionService(db).balance_of(current_user)
     return UserResponse(
         id=current_user.id,
         nickname=current_user.nickname,
@@ -27,6 +30,7 @@ async def get_current_user_profile(
         is_active=current_user.is_active,
         is_verified=current_user.is_verified,
         coins=current_user.coins,
+        contribution_points=contribution_points,
         created_at=current_user.created_at,
         updated_at=current_user.updated_at,
         last_login_at=current_user.last_login_at,
@@ -60,6 +64,7 @@ async def update_current_user(
         is_active=user.is_active,
         is_verified=user.is_verified,
         coins=user.coins,
+        contribution_points=user.contribution_points or 0,
         created_at=user.created_at,
         updated_at=user.updated_at,
         last_login_at=user.last_login_at,

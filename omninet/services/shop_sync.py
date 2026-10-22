@@ -5,20 +5,22 @@ Runs daily at midnight to update shop items from JSON files.
 import asyncio
 import json
 import uuid
-from datetime import datetime, time
+from datetime import UTC, datetime, time
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from omninet.database import async_session_maker
-from omninet.models import CosmeticType, ShopCosmetic, ShopGameplay, ShopItem
+from omninet.models import CosmeticType, ShopCosmetic, ShopGameplay, ShopItem, ShopSpecial
+from omninet.models.shop import CURRENCIES, CURRENCY_COINS, SPECIAL_TYPE_BACKGROUND
 
 # Storage paths
 STORAGE_PATH = Path(__file__).parent.parent.parent / "storage"
 BACKGROUNDS_JSON = STORAGE_PATH / "backgrounds" / "backgrounds.json"
 GAMEPLAY_JSON = STORAGE_PATH / "gameplay" / "gameplay.json"
 ITEMS_JSON = STORAGE_PATH / "items" / "items.json"
+SPECIALS_JSON = STORAGE_PATH / "specials" / "specials.json"
 
 
 async def sync_backgrounds(db: AsyncSession) -> int:
@@ -272,6 +274,115 @@ async def sync_items(db: AsyncSession) -> int:
     return synced
 
 
+def _parse_date(value):
+    """An ISO date/time from specials.json, or None (open)."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        print(f"[ShopSync] Ignoring a date that is not ISO 8601: {value!r}")
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def special_fields(entry: dict) -> dict:
+    """The ShopSpecial columns one specials.json entry gives.
+
+        {"id", "name", "description", "price", "currency": "coins" |
+         "contribution_points", "type": "background", "sort_order",
+         "enabled" (default true), "start_date", "end_date",
+         "json": {"name": "premium_swamp", "label", ...}}
+
+    A background's sprite_name is "bg_<json.name>": its pictures are
+    <storage>/backgrounds/bg_<name>[_day|_dusk|_night][_high].png."""
+    json_data = entry.get("json") or {}
+    special_type = entry.get("type") or json_data.get("type")
+    currency = entry.get("currency") or CURRENCY_COINS
+    if currency not in CURRENCIES:
+        print(f"[ShopSync] Special {entry.get('name')!r}: unknown currency {currency!r}, disabled")
+    sprite_name = entry.get("sprite_name")
+    if not sprite_name and special_type == SPECIAL_TYPE_BACKGROUND and json_data.get("name"):
+        sprite_name = f"bg_{json_data['name']}"
+    return {
+        "name": entry.get("name", ""),
+        "description": entry.get("description", ""),
+        "price": int(entry.get("price", 0) or 0),
+        "currency": currency,
+        "special_type": special_type,
+        "sprite_name": sprite_name,
+        "sort_order": int(entry.get("sort_order", 0) or 0),
+        "json_data": json_data,
+        "enabled": bool(entry.get("enabled", True)) and currency in CURRENCIES,
+        "start_date": _parse_date(entry.get("start_date")),
+        "end_date": _parse_date(entry.get("end_date")),
+    }
+
+
+async def sync_specials(db: AsyncSession, path: Path | None = None) -> int:
+    """
+    Sync Specials from JSON to database.
+    Updates JSON file with generated IDs for new entries; Specials no longer
+    in the file are disabled (bought ones stay downloadable).
+    Returns count of entries synced.
+    """
+    path = path or SPECIALS_JSON
+    if not path.exists():
+        print(f"[ShopSync] Specials JSON not found: {path}")
+        return 0
+
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    specials = data.get("specials", [])
+    updated = False
+    synced = 0
+
+    for entry in specials:
+        special_id = entry.get("id")
+        if not special_id:
+            special_id = str(uuid.uuid4())
+            entry["id"] = special_id
+            updated = True
+
+        fields = special_fields(entry)
+        result = await db.execute(
+            select(ShopSpecial).where(ShopSpecial.id == uuid.UUID(special_id))
+        )
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            for key, value in fields.items():
+                setattr(existing, key, value)
+            existing.updated_at = datetime.utcnow()
+        else:
+            db.add(ShopSpecial(id=uuid.UUID(special_id), **fields))
+
+        synced += 1
+
+    # Disable Specials not in JSON
+    all_ids = [uuid.UUID(entry["id"]) for entry in specials if entry.get("id")]
+    result = await db.execute(
+        select(ShopSpecial).where(
+            ShopSpecial.id.notin_(all_ids) if all_ids else True
+        )
+    )
+    for special in result.scalars():
+        if special.id not in all_ids:
+            special.enabled = False
+
+    await db.commit()
+
+    if updated:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        print("[ShopSync] Updated specials.json with new IDs")
+
+    return synced
+
+
 async def run_shop_sync():
     """Run a full shop sync."""
     print("[ShopSync] Starting shop sync...")
@@ -286,6 +397,9 @@ async def run_shop_sync():
 
             item_count = await sync_items(db)
             print(f"[ShopSync] Synced {item_count} items")
+
+            special_count = await sync_specials(db)
+            print(f"[ShopSync] Synced {special_count} specials")
 
             print("[ShopSync] Shop sync complete")
         except Exception as e:

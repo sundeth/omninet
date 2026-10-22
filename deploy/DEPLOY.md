@@ -117,12 +117,17 @@ cp -r storage/items/       /mnt/user/appdata/omninet/prd/items/
 cp -r storage/gameplay/    /mnt/user/appdata/omninet/prd/gameplay/
 ```
 
+Specials (`specials/specials.json`) and the premium background pictures are
+written by Omnipet's `utilities/claude/build_premium_specials.py --storage
+<the environment's folder>`.
+
 **What each directory contains:**
 | Directory      | Contents                                         |
 |----------------|--------------------------------------------------|
 | `backgrounds/` | Background PNGs + `backgrounds.json` (shop data) |
 | `items/`       | Item icon PNGs + `items.json` (shop data)         |
 | `gameplay/`    | `gameplay.json` (shop data)                       |
+| `specials/`    | `specials.json` (shop data; pictures in `backgrounds/`) |
 | `modules/`     | Created automatically (user-uploaded modules)     |
 | `logs/`        | Created automatically (app logs)                  |
 
@@ -203,6 +208,17 @@ docker compose -f docker-compose.deploy.yml --profile staging restart omninet-de
 docker compose -f docker-compose.deploy.yml --profile production restart omninet-prd
 ```
 
+
+---
+
+## Contribution points (Digimon Database)
+
+The Digimon Database credits contribution points by calling
+`POST /api/v1/internal/contribution-points/credit` with a shared secret. Set
+`CONTRIBUTION_SERVICE_TOKEN=<secret>` in the environment's file (generate it
+with `openssl rand -hex 32`) and give the Database the same value with this
+environment's URL (its `OMNINET_URL`, `OMNINET_SERVICE_TOKEN`). Without the
+variable the endpoint answers 503 and the Database keeps its credits queued.
 
 ---
 

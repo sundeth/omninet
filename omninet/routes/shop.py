@@ -5,13 +5,14 @@ import base64
 import os
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from omninet.config import settings
 from omninet.database import get_db
 from omninet.models import PurchaseType
+from omninet.models.shop import CURRENCY_CONTRIBUTION_POINTS, SPECIAL_TYPE_BACKGROUND
 from omninet.schemas.shop import (
     CosmeticDownloadResponse,
     CosmeticListItem,
@@ -27,11 +28,13 @@ from omninet.schemas.shop import (
     ModuleShopListResponse,
     PurchaseRequest,
     PurchaseResponse,
+    SpecialDownloadResponse,
     SpecialListItem,
     SpecialListResponse,
     UserPurchaseItem,
     UserPurchasesResponse,
 )
+from omninet.services.backgrounds import background_flags, background_preview_paths
 from omninet.services.shop import get_shop_service
 
 router = APIRouter(prefix="/shop", tags=["shop"])
@@ -183,17 +186,27 @@ async def list_specials(db: AsyncSession = Depends(get_db)):
     shop_service = get_shop_service(db)
     specials = await shop_service.list_specials()
 
-    items = [
-        SpecialListItem(
+    items = []
+    for s in specials:
+        # A background's day/night and high-res support comes from its files,
+        # as for cosmetics.
+        day_night = high_res = False
+        if s.special_type == SPECIAL_TYPE_BACKGROUND:
+            day_night, high_res = background_flags(s.sprite_name)
+        items.append(SpecialListItem(
             id=s.id,
             name=s.name,
             description=s.description,
             price=s.price,
+            currency=s.currency or "coins",
+            special_type=s.special_type,
+            sprite_name=s.sprite_name,
+            day_night=day_night,
+            high_res=high_res,
+            json_data=s.json_data,
             start_date=s.start_date,
             end_date=s.end_date,
-        )
-        for s in specials
-    ]
+        ))
 
     return SpecialListResponse(specials=items, total=len(items))
 
@@ -338,6 +351,7 @@ def background_preview_candidates(sprite_name: str) -> list[str]:
 async def get_shop_sprite(
     kind: str,
     item_id: uuid.UUID,
+    size: str | None = Query(None, description="'small': a background's 96x96 picture first"),
     db: AsyncSession = Depends(get_db),
 ):
     """Serve the sprite PNG for a shop entry.
@@ -373,6 +387,13 @@ async def get_shop_sprite(
         and (entry.cosmetic_type.value if hasattr(entry.cosmetic_type, "value") else entry.cosmetic_type) == "background"
     ):
         sprite_paths = background_preview_candidates(sprite_name)
+        if size == "small":
+            sprite_paths = [str(p) for p in background_preview_paths(sprite_name, small=True)]
+    elif kind == "special" and sprite_name and (
+            getattr(entry, "special_type", None) == SPECIAL_TYPE_BACKGROUND):
+        # A background Special's pictures live with the backgrounds.
+        sprite_paths = [str(p) for p in background_preview_paths(
+            sprite_name, small=(size == "small"))]
     else:
         sprite_paths = _shop_sprite_candidates(folder, sprite_name) if sprite_name else []
 
@@ -459,11 +480,16 @@ async def purchase_item(
         purchase_type=purchase_type,
     )
 
+    currency = getattr(shop_service, "last_currency", "coins")
     return PurchaseResponse(
         success=success,
         message=message,
         purchase_id=purchase_id,
         coins_remaining=user.coins if success else None,
+        currency=currency,
+        contribution_points_remaining=(
+            user.contribution_points if success and currency == CURRENCY_CONTRIBUTION_POINTS
+            else None),
     )
 
 
@@ -490,6 +516,7 @@ async def get_user_purchases(
             item_id=p.item_id,
             purchase_type=p.purchase_type.value,
             price_paid=p.price_paid,
+            currency=getattr(p, "currency", None) or "coins",
             purchased_at=p.purchased_at,
         )
         for p in purchases
@@ -527,6 +554,33 @@ async def download_cosmetic(
         )
 
     return CosmeticDownloadResponse(**result)
+
+
+@router.get("/download/special/{item_id}", response_model=SpecialDownloadResponse)
+async def download_special(
+    item_id: uuid.UUID,
+    device_key: str = Header(..., alias="X-Device-Key"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download a purchased Special (a background: all its pictures)."""
+    shop_service = get_shop_service(db)
+    user = await shop_service.get_user_by_device_key(device_key)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or inactive device key",
+        )
+
+    result = await shop_service.download_special(user, item_id)
+
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Special not found or not owned",
+        )
+
+    return SpecialDownloadResponse(**result)
 
 
 @router.get("/download/gameplay/{item_id}", response_model=GameplayDownloadResponse)

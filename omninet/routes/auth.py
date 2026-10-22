@@ -18,6 +18,7 @@ from omninet.schemas.user import (
     VerificationRequest,
 )
 from omninet.services.auth import AuthService
+from omninet.services.contribution import ContributionService
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -128,11 +129,14 @@ async def verify_login(
 @router.post("/validate-device", response_model=UserResponse)
 async def validate_device(
     current_user: CurrentUser,
+    db: DbSession,
 ):
     """
     Validate a device key and return user info.
     Used for auto-login.
     """
+    # Contribution points waiting for this account's email reach it now.
+    contribution_points = await ContributionService(db).balance_of(current_user)
     return UserResponse(
         id=current_user.id,
         nickname=current_user.nickname,
@@ -141,6 +145,7 @@ async def validate_device(
         is_active=current_user.is_active,
         is_verified=current_user.is_verified,
         coins=current_user.coins,
+        contribution_points=contribution_points,
         created_at=current_user.created_at,
         updated_at=current_user.updated_at,
         last_login_at=current_user.last_login_at,
@@ -240,9 +245,12 @@ async def reset_password(
 @router.get("/coins", response_model=CoinBalanceResponse)
 async def get_coin_balance(
     current_user: CurrentUser,
+    db: DbSession,
 ):
-    """Get the current user's coin balance."""
+    """Get the current user's coin and contribution point balances."""
+    contribution_points = await ContributionService(db).balance_of(current_user)
     return CoinBalanceResponse(
         coins=current_user.coins,
+        contribution_points=contribution_points,
         nickname=current_user.nickname,
     )
