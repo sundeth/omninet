@@ -156,6 +156,18 @@ Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4
 | POST | `/admin/arena/tick` | Run the season clock once (admin) |
 | GET/POST | `/dev/arena/...` | Development tools: status, season start/end, tick, runtime apply, dummy teams, bot battles, simulated-player accounts with device keys (ENVIRONMENT=dev only; admin `X-Device-Key` or `X-Dev-Token`) |
 
+### Shop and contribution points
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/shop/specials` | Specials on sale: price, `currency` (`coins` or `contribution_points`), `special_type`, a background's `day_night` / `high_res` |
+| GET | `/shop/{kind}/{id}/sprite` | Preview picture; `?size=small` gives a background's 96x96 day picture instead of the 1024x1024 one |
+| POST | `/shop/purchase` | Buy (`purchase_type` special: paid from the Special's currency; the answer has `currency` and `contribution_points_remaining`) |
+| GET | `/shop/download/special/{id}` | A bought Special; a background with every picture it has (base64) |
+| POST | `/internal/contribution-points/credit` | Digimon Database only (`X-Service-Token`): credit contribution points by email, idempotent per `key`; an email without an account waits for it |
+
+Contribution points are a balance apart from the coins (`users.contribution_points`, in `/auth/validate-device`, `/users/me` and `/auth/coins`). The Digimon Database credits 1 point per contribution that carries an email, 2 on an entry flagged as needing data; every credit is a row of `contribution_credits`, unique by the Database's key. Specials come from `storage/specials/specials.json` (shop sync); a background Special's pictures are `storage/backgrounds/bg_<name>[_day|_dusk|_night][_high].png`.
+
 ### Admin (`/api/v1/admin`)
 
 | Method | Endpoint | Description |
@@ -233,6 +245,7 @@ Example season:
 | `ARENA_MIN_TEAM_SIZE` / `ARENA_MAX_TEAM_SIZE` | Digimon per arena team (a season may narrow it) | 1 / 3 |
 | `ARENA_PET_JSON_MAX_BYTES` | Largest full pet copy kept with a team | 65536 |
 | `SHOP_SYNC_ENABLED` | Shop JSON -> database sync (off for a local server sharing a database) | true |
+| `CONTRIBUTION_SERVICE_TOKEN` | Shared secret the Digimon Database sends to credit contribution points (empty: refused) | (empty) |
 | `DATABASE_ECHO` | SQL statement logging (unset: on in dev) | (unset) |
 
 ## Project Structure

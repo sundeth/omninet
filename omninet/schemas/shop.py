@@ -154,6 +154,17 @@ class SpecialListItem(BaseModel):
     name: str
     description: str | None = None
     price: int
+    # "coins" or "contribution_points": the balance the price comes out of.
+    currency: str = "coins"
+    # What it unlocks ("background"); a game that does not know the type
+    # shows the Special as unavailable.
+    special_type: str | None = None
+    sprite_name: str | None = None
+    # Background Specials, from the files on disk (as cosmetics): separate
+    # day/dusk/night pictures, and *_high versions.
+    day_night: bool = False
+    high_res: bool = False
+    json_data: dict[str, Any] | None = None
     start_date: datetime | None = None
     end_date: datetime | None = None
 
@@ -165,6 +176,20 @@ class SpecialListResponse(BaseModel):
     """Response for listing specials."""
     specials: list[SpecialListItem]
     total: int
+
+
+class SpecialDownloadResponse(BaseModel):
+    """Response for downloading a purchased special: for a background, every
+    picture it has (<sprite_name>[_day|_dusk|_night][_high].png)."""
+    id: uuid.UUID
+    name: str
+    special_type: str | None = None
+    currency: str = "coins"
+    sprite_name: str | None = None
+    day_night: bool = False
+    high_res: bool = False
+    json_data: dict[str, Any] | None = None
+    sprites: dict[str, str] = Field(default_factory=dict)  # file name -> base64 data
 
 
 # ============================================================================
@@ -183,6 +208,10 @@ class PurchaseResponse(BaseModel):
     message: str
     purchase_id: uuid.UUID | None = None
     coins_remaining: int | None = None
+    # The balance this purchase was paid from ("coins" or
+    # "contribution_points") and, for points, what is left of them.
+    currency: str = "coins"
+    contribution_points_remaining: int | None = None
 
 
 class UserPurchaseItem(BaseModel):
@@ -191,6 +220,7 @@ class UserPurchaseItem(BaseModel):
     item_id: uuid.UUID
     purchase_type: str
     price_paid: int
+    currency: str = "coins"
     purchased_at: datetime
 
     class Config:

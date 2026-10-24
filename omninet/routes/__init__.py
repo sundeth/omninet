@@ -5,6 +5,7 @@ from omninet.routes.admin import router as admin_router
 from omninet.routes.arena import router as arena_router
 from omninet.routes.auth import router as auth_router
 from omninet.routes.battles import router as battles_router
+from omninet.routes.contributions import router as contributions_router
 from omninet.routes.modules import router as modules_router
 from omninet.routes.rewards import router as rewards_router
 from omninet.routes.seasons import router as seasons_router
@@ -23,4 +24,5 @@ __all__ = [
     "arena_router",
     "shop_router",
     "rewards_router",
+    "contributions_router",
 ]

@@ -3,9 +3,10 @@ Shop service for handling shop items, purchases, and downloads.
 """
 import base64
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -23,6 +24,25 @@ from omninet.models import (
     UserDevice,
     UserPurchase,
 )
+from omninet.models.shop import (
+    CURRENCY_COINS,
+    CURRENCY_CONTRIBUTION_POINTS,
+    SPECIAL_TYPE_BACKGROUND,
+)
+from omninet.services.backgrounds import background_flags, background_payload
+from omninet.services.contribution import ContributionService
+
+
+def special_on_sale(special: ShopSpecial, now: datetime | None = None) -> bool:
+    """A Special is sold while enabled and inside its dates (either open)."""
+    if not special.enabled:
+        return False
+    now = now or datetime.now(UTC)
+    if special.start_date is not None and special.start_date > now:
+        return False
+    if special.end_date is not None and special.end_date < now:
+        return False
+    return True
 
 
 class ShopService:
@@ -63,11 +83,16 @@ class ShopService:
         return list(result.scalars().all())
 
     async def list_specials(self) -> list[ShopSpecial]:
-        """List all enabled specials."""
+        """The Specials on sale now: enabled and inside their dates."""
+        now = datetime.now(UTC)
         result = await self.db.execute(
             select(ShopSpecial)
-            .where(ShopSpecial.enabled.is_(True))
-            .order_by(ShopSpecial.name)
+            .where(
+                ShopSpecial.enabled.is_(True),
+                or_(ShopSpecial.start_date.is_(None), ShopSpecial.start_date <= now),
+                or_(ShopSpecial.end_date.is_(None), ShopSpecial.end_date >= now),
+            )
+            .order_by(ShopSpecial.sort_order, ShopSpecial.name)
         )
         return list(result.scalars().all())
 
@@ -134,15 +159,19 @@ class ShopService:
     async def user_owns_item(
         self, user_id: uuid.UUID, item_id: uuid.UUID, purchase_type: PurchaseType
     ) -> bool:
-        """Check if user owns an item."""
+        """Check if user owns an item.
+
+        Items can be bought again and again, so there may be several
+        purchases of one: any of them is ownership (scalar_one_or_none()
+        raised MultipleResultsFound, a 500 on the item's download)."""
         result = await self.db.execute(
-            select(UserPurchase).where(
+            select(UserPurchase.id).where(
                 UserPurchase.user_id == user_id,
                 UserPurchase.item_id == item_id,
                 UserPurchase.purchase_type == purchase_type,
-            )
+            ).limit(1)
         )
-        return result.scalar_one_or_none() is not None
+        return result.scalars().first() is not None
 
     async def get_user_by_device_key(self, device_key: str) -> User | None:
         """Get user by device secret key."""
@@ -168,6 +197,9 @@ class ShopService:
         # Get the item and its price
         price = 0
         item_name = ""
+        # Specials may be priced in contribution points instead of coins.
+        currency = CURRENCY_COINS
+        self.last_currency = CURRENCY_COINS
 
         if purchase_type == PurchaseType.COSMETIC:
             item = await self.get_cosmetic(item_id)
@@ -192,10 +224,13 @@ class ShopService:
 
         elif purchase_type == PurchaseType.SPECIAL:
             item = await self.get_special(item_id)
-            if not item or not item.enabled:
+            if not item or not special_on_sale(item):
                 return False, "Special not found or not available", None
             price = item.price
             item_name = item.name
+            currency = item.currency or CURRENCY_COINS
+            if currency not in (CURRENCY_COINS, CURRENCY_CONTRIBUTION_POINTS):
+                return False, f"{item_name} cannot be bought yet", None
 
         elif purchase_type == PurchaseType.MODULE:
             item = await self.get_module(item_id)
@@ -220,12 +255,23 @@ class ShopService:
         if purchase_type != PurchaseType.ITEM and await self.user_owns_item(user.id, item_id, purchase_type):
             return False, f"You already own {item_name}", None
 
-        # Check if user has enough coins
-        if user.coins < price:
-            return False, f"Not enough coins. Need {price}, have {user.coins}", None
+        if currency == CURRENCY_CONTRIBUTION_POINTS:
+            # Paid from the contribution points, never the coins. Points
+            # waiting for the account's email count; the balance is taken in
+            # one conditional statement, so it cannot be spent twice.
+            points = ContributionService(self.db)
+            have = await points.balance_of(user)
+            if price > 0 and await points.spend_points(user, price) is None:
+                return False, (f"Not enough contribution points. Need {price}, "
+                               f"have {have}"), None
+        else:
+            # Check if user has enough coins
+            if user.coins < price:
+                return False, f"Not enough coins. Need {price}, have {user.coins}", None
 
-        # Deduct coins
-        user.coins -= price
+            # Deduct coins
+            user.coins -= price
+        self.last_currency = currency
 
         # Create purchase record
         purchase = UserPurchase(
@@ -233,6 +279,7 @@ class ShopService:
             item_id=item_id,
             purchase_type=purchase_type,
             price_paid=price,
+            currency=currency,
         )
         self.db.add(purchase)
 
@@ -262,28 +309,50 @@ class ShopService:
         if not cosmetic:
             return None
 
-        # Build sprite paths based on cosmetic type
+        # A background's pictures, as they are on disk (services/backgrounds):
+        # every time of day and resolution it has. The file names were sent
+        # with empty contents before (a TODO), so a download saved empty files.
         sprites = {}
         if cosmetic.cosmetic_type == CosmeticType.BACKGROUND:
-            # Background sprites: bg_<name>.png, bg_<name>_night.png (if day_night)
             json_data = cosmetic.json_data or {}
-            bg_name = json_data.get("name", "")
-            if bg_name:
-                # Load sprite files
-                sprite_files = [f"bg_{bg_name}.png"]
-                if json_data.get("day_night"):
-                    sprite_files.append(f"bg_{bg_name}_night.png")
-
-                # TODO: Load actual sprite files from assets folder
-                # For now, return sprite names
-                for sprite_file in sprite_files:
-                    sprites[sprite_file] = ""  # Base64 would go here
+            base = cosmetic.sprite_name or (
+                f"bg_{json_data['name']}" if json_data.get("name") else "")
+            if base:
+                sprites = background_payload(base)
 
         return {
             "id": cosmetic.id,
             "name": cosmetic.name,
             "cosmetic_type": cosmetic.cosmetic_type.value,
             "json_data": cosmetic.json_data,
+            "sprites": sprites,
+        }
+
+    async def download_special(
+        self, user: User, item_id: uuid.UUID
+    ) -> dict | None:
+        """A purchased Special: what it is and, for a background, every
+        picture it has. None when not owned (a Special taken off sale stays
+        downloadable for those who bought it)."""
+        if not await self.user_owns_item(user.id, item_id, PurchaseType.SPECIAL):
+            return None
+        special = await self.get_special(item_id)
+        if not special:
+            return None
+        sprites = {}
+        day_night = high_res = False
+        if special.special_type == SPECIAL_TYPE_BACKGROUND and special.sprite_name:
+            sprites = background_payload(special.sprite_name)
+            day_night, high_res = background_flags(special.sprite_name)
+        return {
+            "id": special.id,
+            "name": special.name,
+            "special_type": special.special_type,
+            "currency": special.currency or CURRENCY_COINS,
+            "sprite_name": special.sprite_name,
+            "day_night": day_night,
+            "high_res": high_res,
+            "json_data": special.json_data,
             "sprites": sprites,
         }
 
@@ -321,10 +390,21 @@ class ShopService:
         if not item:
             return None
 
+        # The item's picture, as the shop serves it (<shop assets>/items/, or
+        # the entry's inline sprite_b64); empty when there is none, as before.
         sprites = {}
         if item.sprite_name:
-            # TODO: Load actual sprite file
-            sprites[f"{item.sprite_name}.png"] = ""  # Base64 would go here
+            name = Path(item.sprite_name).name
+            stem = name[:-4] if name.lower().endswith(".png") else name
+            data = ""
+            folder = Path(settings.shop_assets_base) / "items"
+            for path in (folder / name, folder / f"{stem}.png"):
+                if path.is_file():
+                    data = base64.b64encode(path.read_bytes()).decode("ascii")
+                    break
+            if not data and isinstance(item.json_data, dict):
+                data = item.json_data.get("sprite_b64") or ""
+            sprites[f"{stem}.png"] = data
 
         return {
             "id": item.id,

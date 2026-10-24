@@ -94,6 +94,12 @@ def create_bot(relay: Relay):
         relay.bot_ready = False
 
     @bot.event
+    async def on_resumed():
+        # A dropped gateway connection resumes without a second on_ready:
+        # without this /health said "connecting" while the bot answered.
+        relay.bot_ready = True
+
+    @bot.event
     async def on_message(message):
         await bot.process_commands(message)
         # Battle data posted as an embed, by a webhook or a bot

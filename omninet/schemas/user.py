@@ -48,6 +48,8 @@ class UserResponse(BaseModel):
     is_active: bool
     is_verified: bool
     coins: int
+    # Earned on the Digimon Database; spent on Specials. Not coins.
+    contribution_points: int = 0
     created_at: datetime
     updated_at: datetime
     last_login_at: datetime | None = None
@@ -125,4 +127,5 @@ class CoinBalanceResponse(BaseModel):
     """Response with user's coin balance."""
 
     coins: int
+    contribution_points: int = 0
     nickname: str

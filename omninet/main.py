@@ -17,6 +17,7 @@ from omninet.routes import (
     arena_router,
     auth_router,
     battles_router,
+    contributions_router,
     modules_router,
     rewards_router,
     seasons_router,
@@ -184,6 +185,7 @@ app.include_router(admin_router, prefix="/api/v1")
 app.include_router(arena_router, prefix="/api/v1")
 app.include_router(shop_router, prefix="/api/v1")
 app.include_router(rewards_router, prefix="/api/v1")
+app.include_router(contributions_router, prefix="/api/v1")
 # The Discord relay's API, only where its bot runs (a token is set)
 if settings.discord_bot_token:
     from omninet.routes.discord import router as discord_router

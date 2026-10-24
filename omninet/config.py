@@ -96,6 +96,15 @@ class Settings(BaseSettings):
     # regardless.
     module_fixed_price: int = 50
 
+    # Contribution points (a balance apart from the coins) are credited by
+    # the Digimon Database, server to server: POST
+    # /api/v1/internal/contribution-points/credit with this secret in the
+    # X-Service-Token header. Empty = the endpoint refuses every call.
+    contribution_service_token: str = ""
+    # The most points one credit may carry (a contribution is 1, or 2 on an
+    # entry flagged as needing data).
+    contribution_max_points_per_credit: int = 10
+
     # Reward coin values
     reward_coins_unlock: int = 5
     reward_coins_evolution: int = 2
